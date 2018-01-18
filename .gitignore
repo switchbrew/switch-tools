@@ -14,3 +14,9 @@ compile
 Makefile
 config.status
 config.log
+.dirstamp
+elf2nro
+elf2nso
+nacptool
+nxlink
+*.o
