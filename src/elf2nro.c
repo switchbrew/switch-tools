@@ -131,6 +131,7 @@ int main(int argc, char* argv[]) {
     Elf64_Phdr* phdrs = (Elf64_Phdr*) &elf[hdr->e_phoff];
     size_t i, j = 0;
     size_t file_off = 0;
+    size_t tmpsize;
 
     uint8_t* buf[3];
 
@@ -152,7 +153,11 @@ int main(int argc, char* argv[]) {
         
         // .bss is special
         if (i == 3) {
-            nro_hdr.bssSize = ((phdr->p_memsz - phdr->p_filesz) + 0xFFF) & ~0xFFF;
+            tmpsize = (phdr->p_filesz + 0xFFF) & ~0xFFF;
+            if ( phdr->p_memsz > tmpsize)
+                nro_hdr.bssSize = ((phdr->p_memsz - tmpsize) + 0xFFF) & ~0xFFF;
+            else
+                nro_hdr.bssSize = 0;
             break;
         }
 
