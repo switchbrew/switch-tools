@@ -513,9 +513,10 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 
+
 	char *msyscon = getenv("MSYSCON");
 
-	if (0 == strcmp(msyscon,"mintty.exe")) {
+	if (msyscon && 0 == strcmp(msyscon,"mintty.exe")) {
 		setvbuf(stdout, 0, _IONBF, 0);
 	}
 
