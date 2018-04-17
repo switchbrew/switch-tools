@@ -4,6 +4,7 @@
 #include <dirent.h>
 #ifdef _WIN32
 #include <direct.h>
+#include <wchar.h>
 #endif
 
 #define __USE_LARGEFILE64
@@ -43,7 +44,7 @@ typedef struct _stati64 os_stat64_t;
 #define os_opendir _wopendir
 #define os_readdir _wreaddir
 #define os_stat _wstati64
-#define os_fclose _wfclose
+#define os_fclose fclose
 
 #define OS_MODE_READ L"rb"
 #define OS_MODE_WRITE L"wb"
