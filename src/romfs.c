@@ -280,14 +280,7 @@ void romfs_visit_dir(romfs_dirent_ctx_t *parent, romfs_ctx_t *romfs_ctx) {
     }
 }
 
-void build_romfs(filepath_t *in_dirpath, filepath_t *out_romfspath) {
-    FILE *f_out = NULL;
-    
-    if ((f_out = os_fopen(out_romfspath->os_path, OS_MODE_WRITE)) == NULL) {
-        fprintf(stderr, "Failed to open %s!\n", out_romfspath->char_path);
-        exit(EXIT_FAILURE);
-    }
-    
+size_t build_romfs_into_file(filepath_t *in_dirpath, FILE *f_out, off_t base_offset) {
     romfs_dirent_ctx_t *root_ctx = calloc(1, sizeof(romfs_dirent_ctx_t));
     if (root_ctx == NULL) {
         fprintf(stderr, "Failed to allocate root context!\n");
@@ -437,6 +430,8 @@ void build_romfs(filepath_t *in_dirpath, filepath_t *out_romfspath) {
     header.dir_table_ofs = le_dword(header.dir_table_ofs);
     header.file_hash_table_ofs = le_dword(header.file_hash_table_ofs);
     header.file_table_ofs = le_dword(header.file_table_ofs);
+    
+    fseeko64(f_out, base_offset, SEEK_SET);
     fwrite(&header, 1, sizeof(header), f_out);
     
     /* Write files. */
@@ -454,7 +449,7 @@ void build_romfs(filepath_t *in_dirpath, filepath_t *out_romfspath) {
         }
         
         printf("Writing %s to RomFS image...\n", cur_file->sum_path.char_path);
-        fseeko64(f_out, cur_file->offset + ROMFS_FILEPARTITION_OFS, SEEK_SET);
+        fseeko64(f_out, base_offset + cur_file->offset + ROMFS_FILEPARTITION_OFS, SEEK_SET);
         uint64_t offset = 0;
         uint64_t read_size = 0x400000;
         while (offset < cur_file->size) {
@@ -483,7 +478,7 @@ void build_romfs(filepath_t *in_dirpath, filepath_t *out_romfspath) {
     }
     free(buffer);
     
-    fseeko64(f_out, dir_hash_table_ofs, SEEK_SET);
+    fseeko64(f_out, base_offset + dir_hash_table_ofs, SEEK_SET);
     if (fwrite(dir_hash_table, 1, romfs_ctx.dir_hash_table_size, f_out) != romfs_ctx.dir_hash_table_size) {
         fprintf(stderr, "Failed to write dir hash table!\n");
         exit(EXIT_FAILURE);
@@ -508,10 +503,24 @@ void build_romfs(filepath_t *in_dirpath, filepath_t *out_romfspath) {
     }
     free(file_table);
     
-    fclose(f_out);
+    return dir_hash_table_ofs + romfs_ctx.dir_hash_table_size + romfs_ctx.dir_table_size + romfs_ctx.file_hash_table_size + romfs_ctx.file_table_size;
 }
 
-void build_romfs_by_paths(char *dir, char *out_fn) {
+size_t build_romfs(filepath_t *in_dirpath, filepath_t *out_romfspath) {
+    FILE *f_out = NULL;
+    
+    if ((f_out = os_fopen(out_romfspath->os_path, OS_MODE_WRITE)) == NULL) {
+        fprintf(stderr, "Failed to open %s!\n", out_romfspath->char_path);
+        exit(EXIT_FAILURE);
+    }
+    
+    size_t sz = build_romfs_into_file(in_dirpath, f_out, 0);
+    
+    fclose(f_out);
+    return sz;
+}
+
+size_t build_romfs_by_paths(char *dir, char *out_fn) {
     filepath_t dirpath;
     filepath_t outpath;
     
@@ -521,5 +530,15 @@ void build_romfs_by_paths(char *dir, char *out_fn) {
     filepath_set(&dirpath, dir);
     filepath_set(&outpath, out_fn);
     
-    build_romfs(&dirpath, &outpath);
+    return build_romfs(&dirpath, &outpath);
+}
+
+size_t build_romfs_by_path_into_file(char *dir, FILE *f_out, off_t offset) {
+    filepath_t dirpath;
+    
+    filepath_init(&dirpath);
+    
+    filepath_set(&dirpath, dir);
+
+    return build_romfs_into_file(&dirpath, f_out, offset);
 }

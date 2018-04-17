@@ -113,14 +113,9 @@ int main(int argc, char* argv[]) {
         if (strncmp(argv[argi], "--romfsdir=", 11)==0) romfs_dir_path = &argv[argi][11];
     }
     
-    if (romfs_dir_path != NULL) {
-        if (romfs_path != NULL) {
-            fprintf(stderr, "Cannot have a RomFS and a RomFS Directory at the same time!\n");
-            return EXIT_FAILURE;
-        }
-        romfs_path = "temp.romfs";
-        remove(romfs_path);
-        build_romfs_by_paths(romfs_dir_path, romfs_path);
+    if (romfs_dir_path != NULL && romfs_path != NULL) {
+        fprintf(stderr, "Cannot have a RomFS and a RomFS Directory at the same time!\n");
+        return EXIT_FAILURE;
     }
     
     if (elf_len < sizeof(Elf64_Ehdr)) {
@@ -261,9 +256,10 @@ int main(int argc, char* argv[]) {
         asset_hdr.romfs.size = romfs_len;
         tmp_off+= romfs_len;
         
-        if (romfs_dir_path) {   
-            remove(romfs_path);
-        }
+    } else if (romfs_dir_path) {
+        asset_hdr.romfs.offset = tmp_off;
+        asset_hdr.romfs.size = build_romfs_by_path_into_file(romfs_dir_path, out, tmp_off);
+        tmp_off+= asset_hdr.romfs.size;
     }
 
     fwrite(&asset_hdr, sizeof(asset_hdr), 1, out);
