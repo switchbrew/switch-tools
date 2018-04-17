@@ -6,6 +6,7 @@
 #include <lz4.h>
 #include "sha256.h"
 #include "elf64.h"
+#include "romfs.h"
 
 typedef uint64_t u64;
 typedef uint32_t u32;
@@ -79,7 +80,8 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Options:\n");
         fprintf(stderr, "--icon=<iconpath> Embeds icon into the output file.\n");
         fprintf(stderr, "--nacp=<control.nacp> Embeds control.nacp into the output file.\n");
-        fprintf(stderr, "--romfs=<image> Embeds RomFS into the output file.\n");//TODO: Use directory for input instead.
+        fprintf(stderr, "--romfs=<image> Embeds RomFS into the output file.\n");
+        fprintf(stderr, "--romfsdir=<directory> Builds and embeds RomFS into the output file.\n");
         return EXIT_FAILURE;
     }
     
@@ -103,13 +105,24 @@ int main(int argc, char* argv[]) {
     }
 
     int argi;
-    char* icon_path = NULL, *nacp_path = NULL, *romfs_path = NULL;
+    char* icon_path = NULL, *nacp_path = NULL, *romfs_path = NULL, *romfs_dir_path = NULL;
     for (argi=3; argi<argc; argi++) {
         if (strncmp(argv[argi], "--icon=", 7)==0) icon_path = &argv[argi][7];
         if (strncmp(argv[argi], "--nacp=", 7)==0) nacp_path = &argv[argi][7];
         if (strncmp(argv[argi], "--romfs=", 8)==0) romfs_path = &argv[argi][8];
+        if (strncmp(argv[argi], "--romfsdir=", 11)==0) romfs_dir_path = &argv[argi][11];
     }
-
+    
+    if (romfs_dir_path != NULL) {
+        if (romfs_path != NULL) {
+            fprintf(stderr, "Cannot have a RomFS and a RomFS Directory at the same time!\n");
+            return EXIT_FAILURE;
+        }
+        romfs_path = "temp.romfs";
+        remove(romfs_path);
+        build_romfs_by_paths(romfs_dir_path, romfs_path);
+    }
+    
     if (elf_len < sizeof(Elf64_Ehdr)) {
         fprintf(stderr, "Input file doesn't fit ELF header!\n");
         return EXIT_FAILURE;
@@ -247,6 +260,10 @@ int main(int argc, char* argv[]) {
         asset_hdr.romfs.offset = tmp_off;
         asset_hdr.romfs.size = romfs_len;
         tmp_off+= romfs_len;
+        
+        if (romfs_dir_path) {   
+            remove(romfs_path);
+        }
     }
 
     fwrite(&asset_hdr, sizeof(asset_hdr), 1, out);
