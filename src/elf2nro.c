@@ -258,8 +258,9 @@ int main(int argc, char* argv[]) {
         
     } else if (romfs_dir_path) {
         asset_hdr.romfs.offset = tmp_off;
-        asset_hdr.romfs.size = build_romfs_by_path_into_file(romfs_dir_path, out, tmp_off);
+        asset_hdr.romfs.size = build_romfs_by_path_into_file(romfs_dir_path, out, file_off + tmp_off);
         tmp_off+= asset_hdr.romfs.size;
+        fseek(out, file_off, SEEK_SET);
     }
 
     fwrite(&asset_hdr, sizeof(asset_hdr), 1, out);
