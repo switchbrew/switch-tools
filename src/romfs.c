@@ -90,12 +90,13 @@ romfs_fentry_t *romfs_get_fentry(romfs_fentry_t *files, uint32_t offset) {
     return (romfs_fentry_t *)((char *)files + offset);
 }
 
-uint32_t calc_path_hash(uint32_t parent, const char *path, uint32_t start, size_t path_len) {
+uint32_t calc_path_hash(uint32_t parent, const unsigned char *path, uint32_t start, size_t path_len) {
     uint32_t hash = parent ^ 123456789;
     for (uint32_t i = 0; i < path_len; i++) {
         hash = (hash >> 5) | (hash << 27);
         hash ^= path[start + i];
     }
+        
     return hash;
 }
 
@@ -381,7 +382,7 @@ size_t build_romfs_into_file(filepath_t *in_dirpath, FILE *f_out, off_t base_off
         cur_entry->size = le_dword(cur_file->size);
         
         uint32_t name_size = strlen(cur_file->cur_path.char_path)-1;
-        uint32_t hash = calc_path_hash(cur_file->parent->entry_offset, cur_file->cur_path.char_path, 1, name_size);
+        uint32_t hash = calc_path_hash(cur_file->parent->entry_offset, (unsigned char *)cur_file->cur_path.char_path, 1, name_size);
         cur_entry->hash = file_hash_table[hash % file_hash_table_entry_count];
         file_hash_table[hash % file_hash_table_entry_count] = le_word(cur_file->entry_offset);
         
@@ -401,7 +402,7 @@ size_t build_romfs_into_file(filepath_t *in_dirpath, FILE *f_out, off_t base_off
         cur_entry->file = le_word(cur_dir->file == NULL ? ROMFS_ENTRY_EMPTY : cur_dir->file->entry_offset);
         
         uint32_t name_size = (cur_dir == root_ctx) ? 0 : strlen(cur_dir->cur_path.char_path)-1;
-        uint32_t hash = calc_path_hash((cur_dir == root_ctx) ? 0 : cur_dir->parent->entry_offset, cur_dir->cur_path.char_path, 1, name_size);
+        uint32_t hash = calc_path_hash((cur_dir == root_ctx) ? 0 : cur_dir->parent->entry_offset, (unsigned char *)cur_dir->cur_path.char_path, 1, name_size);
         cur_entry->hash = dir_hash_table[hash % dir_hash_table_entry_count];
         dir_hash_table[hash % dir_hash_table_entry_count] = le_word(cur_dir->entry_offset);
         
