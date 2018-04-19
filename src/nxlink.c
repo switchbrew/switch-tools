@@ -513,12 +513,9 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 
-
-	char *msyscon = getenv("MSYSCON");
-
-	if (msyscon && 0 == strcmp(msyscon,"mintty.exe")) {
-		setvbuf(stdout, 0, _IONBF, 0);
-	}
+#ifdef _WIN32
+	setvbuf(stdout, 0, _IONBF, 0);
+#endif
 
 	fseek(fh,0,SEEK_END);
 	size_t filesize = ftell(fh);
