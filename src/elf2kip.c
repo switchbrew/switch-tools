@@ -82,6 +82,16 @@ int cJSON_GetU16(const cJSON *obj, const char *field, u16 *out) {
     }
 }
 
+int cJSON_GetU16FromObjectValue(const cJSON *config, u16 *out) {
+    if (cJSON_IsNumber(config)) {
+        *out = (u16)config->valueint;
+        return 1;
+    } else {
+        fprintf(stderr, "Failed to get %s (field not present).\n", config->string);
+        return 0;
+    }
+}
+
 int cJSON_GetBoolean(const cJSON *obj, const char *field, int *out) {
     const cJSON *config = cJSON_GetObjectItemCaseSensitive(obj, field);
     if (cJSON_IsBool(config)) {
@@ -139,6 +149,31 @@ int cJSON_GetU64(const cJSON *obj, const char *field, u64 *out) {
         }
     } else {
         fprintf(stderr, "Failed to get %s (field not present).\n", field);
+        return 0;
+    }
+}
+
+int cJSON_GetU64FromObjectValue(const cJSON *config, u64 *out) {
+    if (cJSON_IsString(config) && (config->valuestring != NULL)) {
+        char *endptr = NULL;
+        *out = strtoul(config->valuestring, &endptr, 16);
+        if (config->valuestring == endptr) {
+            fprintf(stderr, "Failed to get %s (empty string)\n", config->string);
+            return 0;
+        } else if (errno == ERANGE) {
+            fprintf(stderr, "Failed to get %s (value out of range)\n", config->string);
+            return 0;
+        } else if (errno == EINVAL) {
+            fprintf(stderr, "Failed to get %s (not base16 string)\n", config->string);
+            return 0;
+        } else if (errno) {
+            fprintf(stderr, "Failed to get %s (unknown error)\n", config->string);
+            return 0;
+        } else {
+            return 1;
+        }
+    } else {
+        fprintf(stderr, "Failed to get %s (field not present).\n", config->string);
         return 0;
     }
 }
@@ -202,8 +237,8 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
 
     /* Parse capabilities. */
     capabilities = cJSON_GetObjectItemCaseSensitive(npdm_json, "kernel_capabilities");
-    if (!cJSON_IsArray(capabilities)) {
-        fprintf(stderr, "Kernel Capabilities must be an array!\n");
+    if (!cJSON_IsObject(capabilities)) {
+        fprintf(stderr, "Kernel Capabilities must be an object!\n");
         status = 0;
         goto PARSE_CAPS_END;
     }
@@ -212,22 +247,9 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
     u32 desc;
     cJSON_ArrayForEach(capability, capabilities) {
         desc = 0;
-        if (!cJSON_IsObject(capability)) {
-            fprintf(stderr, "Kernel Capabilities must all be objects!\n");
-            status = 0;
-            goto PARSE_CAPS_END;
-        }
-        const cJSON *type = cJSON_GetObjectItemCaseSensitive(capability, "type");
-        char *type_str;
-        if (cJSON_IsString(type) && (type->valuestring != NULL)) {
-            type_str = type->valuestring;
-        } else {
-            fprintf(stderr, "Failed to get capability type (field not present).\n");
-            status = 0;
-            goto PARSE_CAPS_END;
-        }
+        const char *type_str = capability->string;
         
-        const cJSON *value = cJSON_GetObjectItemCaseSensitive(capability, "value");
+        const cJSON *value = capability;
         if (!strcmp(type_str, "kernel_flags")) {
             if (cur_cap + 1 > 0x20) {
                 fprintf(stderr, "Error: Too many capabilities!\n");
@@ -321,7 +343,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 goto PARSE_CAPS_END;
             }
             u64 page_address = 0;
-            if (!cJSON_GetU64(capability, "value", &page_address)) {
+            if (!cJSON_GetU64FromObjectValue(value, &page_address)) {
                 status = 0;
                 goto PARSE_CAPS_END;
             }
@@ -358,7 +380,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 status = 0;
                 goto PARSE_CAPS_END;
             }
-            if (!cJSON_GetU16(capability, "value", (u16 *)&desc)) {
+            if (!cJSON_GetU16FromObjectValue(value, (u16 *)&desc)) {
                 status = 0;
                 goto PARSE_CAPS_END;
             }
@@ -370,7 +392,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 status = 0;
                 goto PARSE_CAPS_END;
             }
-            if (!cJSON_GetU16(capability, "value", (u16 *)&desc)) {
+            if (!cJSON_GetU16FromObjectValue(value, (u16 *)&desc)) {
                 status = 0;
                 goto PARSE_CAPS_END;
             }
@@ -381,7 +403,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 status = 0;
                 goto PARSE_CAPS_END;
             }
-            if (!cJSON_GetU16(capability, "value", (u16 *)&desc)) {
+            if (!cJSON_GetU16FromObjectValue(value, (u16 *)&desc)) {
                 status = 0;
                 goto PARSE_CAPS_END;
             }
