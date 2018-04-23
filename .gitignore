@@ -17,6 +17,12 @@ config.log
 .dirstamp
 elf2nro
 elf2nso
+elf2kip
 nacptool
 nxlink
 *.o
+*.elf
+*.kip
+*.nro
+*.nso
+*.json
