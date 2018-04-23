@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <limits.h>
 #include "cJSON.h"
+#include "blz.h"
 #include "elf64.h"
 
 typedef uint64_t u64;
@@ -428,9 +429,7 @@ int main(int argc, char* argv[]) {
 
     KipHeader kip_hdr = {0};
     memcpy(kip_hdr.Magic, "KIP1", 4);
-    /* TODO: Enable compression for each section. */
-    /* TODO: kip_hdr.Flags = 0x1F; */
-    kip_hdr.Flags = 0x18;
+    kip_hdr.Flags = 0x1F;
 
     if (sizeof(KipHeader) != 0x100) {
         fprintf(stderr, "Bad compile environment!\n");
@@ -474,9 +473,11 @@ int main(int argc, char* argv[]) {
     Elf64_Phdr* phdrs = (Elf64_Phdr*) &elf[hdr->e_phoff];
     size_t i, j = 0;
     size_t file_off = 0;
+    size_t dst_off = 0;
     size_t tmpsize;
 
     uint8_t* buf[3];
+    uint8_t* cmp[3];
     size_t FileOffsets[3];
 
     for (i=0; i<4; i++) {
@@ -496,7 +497,7 @@ int main(int argc, char* argv[]) {
         }
         
         
-        kip_hdr.Segments[i].DstOff = file_off;
+        kip_hdr.Segments[i].DstOff = dst_off;
         
         // .bss is special
         if (i == 3) {
@@ -513,7 +514,6 @@ int main(int argc, char* argv[]) {
 
         FileOffsets[i] = phdr->p_vaddr;
         kip_hdr.Segments[i].DecompSz = (phdr->p_filesz + 0xFFF) & ~0xFFF;
-        kip_hdr.Segments[i].CompSz = kip_hdr.Segments[i].DecompSz;
         buf[i] = malloc(kip_hdr.Segments[i].DecompSz);
 
         if (buf[i] == NULL) {
@@ -524,9 +524,11 @@ int main(int argc, char* argv[]) {
         memset(buf[i], 0, kip_hdr.Segments[i].DecompSz);
         
         memcpy(buf[i], &elf[phdr->p_offset], phdr->p_filesz);
+        cmp[i] = BLZ_Code(buf[i], phdr->p_filesz, &kip_hdr.Segments[i].CompSz, BLZ_BEST);
 
-        file_off += kip_hdr.Segments[i].DecompSz;
-        file_off = (file_off + 0xFFF) & ~0xFFF;
+        file_off += kip_hdr.Segments[i].CompSz;
+        dst_off += kip_hdr.Segments[i].DecompSz;
+        dst_off = (dst_off + 0xFFF) & ~0xFFF;
     }
 
     FILE* out = fopen(argv[3], "wb");
@@ -541,7 +543,7 @@ int main(int argc, char* argv[]) {
     for (i=0; i<3; i++)
     {
         fseek(out, sizeof(kip_hdr) + kip_hdr.Segments[i].DstOff, SEEK_SET);
-        fwrite(buf[i], kip_hdr.Segments[i].CompSz, 1, out);
+        fwrite(cmp[i], kip_hdr.Segments[i].CompSz, 1, out);
     }
 
     fseek(out, 0, SEEK_SET);
