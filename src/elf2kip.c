@@ -287,13 +287,22 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             u32 descriptors[6] = {0}; /* alignup(0x80/0x18); */
             char field_name[8] = {0};
             const cJSON *cur_syscall = NULL;
+            u64 syscall_value = 0;
             cJSON_ArrayForEach(cur_syscall, value) {
-                if (!cJSON_IsNumber(cur_syscall) || cur_syscall->valueint < 0 || cur_syscall->valueint >= 0x80) {
+                if (cJSON_IsNumber(cur_syscall)) {
+                    syscall_value = (u64)cur_syscall->valueint;   
+                } else if (!cJSON_IsString(cur_syscall) || !cJSON_GetU64(value, cur_syscall->string, &syscall_value)) {
+                    fprintf(stderr, "Error: Syscall entries must be integers or hex strings.\n");
+                    status = 0;
+                    goto PARSE_CAPS_END;
+                }
+                
+                if (syscall_value >= 0x80) {
                     fprintf(stderr, "Error: All syscall entries must be numbers in [0, 0x7F]\n");
                     status = 0;
                     goto PARSE_CAPS_END;
                 }
-                descriptors[cur_syscall->valueint / 0x18] |= (1UL << (cur_syscall->valueint % 0x18));
+                descriptors[syscall_value / 0x18] |= (1UL << (syscall_value % 0x18));
             }
             for (unsigned int i = 0; i < 6; i++) {
                 if (descriptors[i]) {
