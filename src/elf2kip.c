@@ -460,7 +460,7 @@ int main(int argc, char* argv[]) {
 
     KipHeader kip_hdr = {0};
     memcpy(kip_hdr.Magic, "KIP1", 4);
-    kip_hdr.Flags = 0x1F;
+    kip_hdr.Flags = 0x3F;
 
     if (sizeof(KipHeader) != 0x100) {
         fprintf(stderr, "Bad compile environment!\n");
@@ -538,13 +538,12 @@ int main(int argc, char* argv[]) {
             } else {
                 kip_hdr.Segments[i].DecompSz = 0;           
             }
-            kip_hdr.Segments[i].DstOff = phdr->p_vaddr;
             kip_hdr.Segments[i].CompSz = 0;
             break;
         }
 
-        FileOffsets[i] = phdr->p_vaddr;
-        kip_hdr.Segments[i].DecompSz = (phdr->p_filesz + 0xFFF) & ~0xFFF;
+        FileOffsets[i] = file_off;
+        kip_hdr.Segments[i].DecompSz = phdr->p_filesz;
         buf[i] = malloc(kip_hdr.Segments[i].DecompSz);
 
         if (buf[i] == NULL) {
@@ -556,7 +555,7 @@ int main(int argc, char* argv[]) {
         
         memcpy(buf[i], &elf[phdr->p_offset], phdr->p_filesz);
         cmp[i] = BLZ_Code(buf[i], phdr->p_filesz, &kip_hdr.Segments[i].CompSz, BLZ_BEST);
-
+        
         file_off += kip_hdr.Segments[i].CompSz;
         dst_off += kip_hdr.Segments[i].DecompSz;
         dst_off = (dst_off + 0xFFF) & ~0xFFF;
@@ -573,7 +572,7 @@ int main(int argc, char* argv[]) {
 
     for (i=0; i<3; i++)
     {
-        fseek(out, sizeof(kip_hdr) + kip_hdr.Segments[i].DstOff, SEEK_SET);
+        fseek(out, sizeof(kip_hdr) + FileOffsets[i], SEEK_SET);
         fwrite(cmp[i], kip_hdr.Segments[i].CompSz, 1, out);
     }
 

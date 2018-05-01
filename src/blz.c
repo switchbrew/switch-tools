@@ -286,7 +286,7 @@ u8 *BLZ_Code(u8 *raw_buffer, int raw_len, u32 *new_len, int best) {
 
     *(u32 *)pak = 0; pak += 4;
   } else {
-    tmp = (u8 *) Memory(raw_tmp + pak_tmp + 11, sizeof(char));
+    tmp = (u8 *) Memory(raw_tmp + pak_tmp + 15, sizeof(char));
 
     for (len = 0; len < raw_tmp; len++)
       tmp[len] = raw_buffer[len];
