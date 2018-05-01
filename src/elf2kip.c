@@ -555,7 +555,7 @@ int main(int argc, char* argv[]) {
         
         memcpy(buf[i], &elf[phdr->p_offset], phdr->p_filesz);
         cmp[i] = BLZ_Code(buf[i], phdr->p_filesz, &kip_hdr.Segments[i].CompSz, BLZ_BEST);
-                
+        
         file_off += kip_hdr.Segments[i].CompSz;
         dst_off += kip_hdr.Segments[i].DecompSz;
         dst_off = (dst_off + 0xFFF) & ~0xFFF;
