@@ -131,7 +131,7 @@ int cJSON_GetU64(const cJSON *obj, const char *field, u64 *out) {
     const cJSON *config = cJSON_GetObjectItemCaseSensitive(obj, field);
     if (cJSON_IsString(config) && (config->valuestring != NULL)) {
         char *endptr = NULL;
-        *out = strtoul(config->valuestring, &endptr, 16);
+        *out = strtoull(config->valuestring, &endptr, 16);
         if (config->valuestring == endptr) {
             fprintf(stderr, "Failed to get %s (empty string)\n", field);
             return 0;
@@ -156,7 +156,7 @@ int cJSON_GetU64(const cJSON *obj, const char *field, u64 *out) {
 int cJSON_GetU64FromObjectValue(const cJSON *config, u64 *out) {
     if (cJSON_IsString(config) && (config->valuestring != NULL)) {
         char *endptr = NULL;
-        *out = strtoul(config->valuestring, &endptr, 16);
+        *out = strtoull(config->valuestring, &endptr, 16);
         if (config->valuestring == endptr) {
             fprintf(stderr, "Failed to get %s (empty string)\n", config->string);
             return 0;
