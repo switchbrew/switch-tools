@@ -401,10 +401,15 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 status = 0;
                 goto PARSE_CAPS_END;
             }
-            if (!cJSON_GetU16FromObjectValue(value, (u16 *)&desc)) {
+            u64 kern_ver = 0;
+            if (cJSON_IsNumber(value)) {
+                kern_ver = (u64)value->valueint;   
+            } else if (!cJSON_IsString(value) || !cJSON_GetU64FromObjectValue(value, &kern_ver)) {
+                fprintf(stderr, "Error: Kernel version must be integer or hex strings.\n");
                 status = 0;
                 goto PARSE_CAPS_END;
             }
+            desc = (kern_ver) & 0xFFFF;
             kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 15) | (0x3FFF));
         } else if (!strcmp(type_str, "handle_table_size")) {
             if (cur_cap + 1 > 0x20) {
