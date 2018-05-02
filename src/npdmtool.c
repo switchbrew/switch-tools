@@ -6,33 +6,86 @@
 #include <errno.h>
 #include <limits.h>
 #include "cJSON.h"
-#include "blz.h"
-#include "elf64.h"
 
 typedef uint64_t u64;
 typedef uint32_t u32;
 typedef uint16_t u16;
 typedef uint8_t u8;
 
+#define MAGIC_META 0x4154454D
+#define MAGIC_ACID 0x44494341
+#define MAGIC_ACI0 0x30494341
+
+/* FAC, FAH need to be tightly packed. */
+#pragma pack(push, 1)
 typedef struct {
-    u32 DstOff;
-    u32 DecompSz;
-    u32 CompSz;
-    u32 Attribute;
-} KipSegment;
+    u32 Version;
+    u64 Perms;
+    u8 _0xC[0x20];
+} FilesystemAccessControl;
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+typedef struct {
+    u32 Version;
+    u64 Perms;
+    u32 _0xC;
+    u32 _0x10;
+    u32 _0x14;
+    u32 _0x18;
+} FilesystemAccessHeader;
+#pragma pack(pop)
 
 typedef struct {
-    u8  Magic[4];
-    u8  Name[0xC];
+    u32 Magic;
+    u8 _0x4[0xC];
     u64 TitleId;
+    u64 _0x18;
+    u32 FahOffset;
+    u32 FahSize;
+    u32 SacOffset;
+    u32 SacSize;
+    u32 KacOffset;
+    u32 KacSize;
+    u64 Padding;
+} NpdmAci0;
+
+typedef struct {
+    u8 Signature[0x100];
+    u8 Modulus[0x100];
+    u32 Magic;
+    u32 Size;
+    u32 _0x208;
+    u32 Flags;
+    u64 TitleIdRangeMin;
+    u64 TitleIdRangeMax;
+    u32 FacOffset;
+    u32 FacSize;
+    u32 SacOffset;
+    u32 SacSize;
+    u32 KacOffset;
+    u32 KacSize;
+    u64 Padding;
+} NpdmAcid;
+
+typedef struct {
+    u32 Magic;
+    u32 _0x4;
+    u32 _0x8;
+    u8 MmuFlags;
+    u8 _0xD;
+    u8 MainThreadPriority;
+    u8 DefaultCpuId;
+    u64 _0x10;
     u32 ProcessCategory;
-    u8  MainThreadPriority;
-    u8  DefaultCpuId;
-    u8  Unk;
-    u8  Flags;
-    KipSegment Segments[6];
-    u32 Capabilities[0x20];   
-} KipHeader;
+    u32 MainThreadStackSize;
+    char Name[0x50];
+    u32 Aci0Offset;
+    u32 Aci0Size;
+    u32 AcidOffset;
+    u32 AcidSize;
+} NpdmHeader;
+
 
 uint8_t* ReadEntireFile(const char* fn, size_t* len_out) {
     FILE* fd = fopen(fn, "rb");
@@ -178,9 +231,20 @@ int cJSON_GetU64FromObjectValue(const cJSON *config, u64 *out) {
     }
 }
 
-int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
+int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
+    NpdmHeader header = {0};
+    NpdmAci0 *aci0 = calloc(1, 0x100000);
+    NpdmAcid *acid = calloc(1, 0x100000);
+    if (aci0 == NULL || acid == NULL) {
+        fprintf(stderr, "Failed to allocate NPDM resources!\n");
+        exit(EXIT_FAILURE);
+    }
     const cJSON *capability = NULL;
     const cJSON *capabilities = NULL;
+    const cJSON *service = NULL;
+    const cJSON *services = NULL;
+    const cJSON *fsaccess = NULL;
+        
     int status = 0;
     cJSON *npdm_json = cJSON_Parse(json);
     if (npdm_json == NULL) {
@@ -189,60 +253,169 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             fprintf(stderr, "JSON Parse Error: %s\n", error_ptr);
         }
         status = 0;
-        goto PARSE_CAPS_END;
+        goto NPDM_BUILD_END;
     }
+    
+    /* Initialize default NPDM values. */
+    header.Magic = MAGIC_META; /* "META" */
+
     
     /* Parse name. */
     const cJSON *title_name = cJSON_GetObjectItemCaseSensitive(npdm_json, "name");
     if (cJSON_IsString(title_name) && (title_name->valuestring != NULL)) {
-        strncpy(kip_hdr->Name, title_name->valuestring, sizeof(kip_hdr->Name) - 1);
+        strncpy(header.Name, title_name->valuestring, sizeof(header.Name) - 1);
     } else {
         fprintf(stderr, "Failed to get title name (name field not present).\n");
         status = 0;
-        goto PARSE_CAPS_END;
-    }
-    
-    /* Parse title_id. */
-    if (!cJSON_GetU64(npdm_json, "title_id", &kip_hdr->TitleId)) {
-        status = 0;
-        goto PARSE_CAPS_END;
+        goto NPDM_BUILD_END;
     }
     
     /* Parse main_thread_stack_size. */
     u64 stack_size = 0;
     if (!cJSON_GetU64(npdm_json, "main_thread_stack_size", &stack_size)) {
         status = 0;
-        goto PARSE_CAPS_END;
+        goto NPDM_BUILD_END;
     }
     if (stack_size >> 32) {
         fprintf(stderr, "Error: Main thread stack size must be a u32!\n");
         status = 0;
-        goto PARSE_CAPS_END;
+        goto NPDM_BUILD_END;
     }
-    kip_hdr->Segments[1].Attribute = (u32)(stack_size & 0xFFFFFFFF);
+    header.MainThreadStackSize = (u32)(stack_size & 0xFFFFFFFF);
     
     /* Parse various config. */
-    if (!cJSON_GetU8(npdm_json, "main_thread_priority", &kip_hdr->MainThreadPriority)) {
+    if (!cJSON_GetU8(npdm_json, "main_thread_priority", &header.MainThreadPriority)) {
         status = 0;
-        goto PARSE_CAPS_END;
+        goto NPDM_BUILD_END;
     }
-    if (!cJSON_GetU8(npdm_json, "default_cpu_id", &kip_hdr->DefaultCpuId)) {
+    if (!cJSON_GetU8(npdm_json, "default_cpu_id", &header.DefaultCpuId)) {
         status = 0;
-        goto PARSE_CAPS_END;
+        goto NPDM_BUILD_END;
     }
-    if (!cJSON_GetU8(npdm_json, "process_category", (u8 *)&kip_hdr->ProcessCategory)) {
+    if (!cJSON_GetU8(npdm_json, "process_category", (u8 *)&header.ProcessCategory)) {
         status = 0;
-        goto PARSE_CAPS_END;
+        goto NPDM_BUILD_END;
     }
-
+    if (!cJSON_GetU8(npdm_json, "address_space_type", (u8 *)&header.MmuFlags)) {
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    header.MmuFlags &= 3;
+    header.MmuFlags <<= 1;
+    int is_64_bit;
+    if (!cJSON_GetBoolean(npdm_json, "is_64_bit", &is_64_bit)) {
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    header.MmuFlags |= is_64_bit;
+    
+    /* ACID. */
+    memset(acid->Signature, 0, sizeof(acid->Signature));
+    memset(acid->Modulus, 0, sizeof(acid->Modulus));
+    acid->Magic = MAGIC_ACID; /* "ACID" */
+    int is_retail;
+    if (!cJSON_GetBoolean(npdm_json, "is_retail", &is_retail)) {
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    acid->Flags |= is_retail;
+    u8 pool_partition;
+    if (!cJSON_GetU8(npdm_json, "pool_partition", &pool_partition)) {
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    acid->Flags |= (pool_partition & 3) << 2;
+    
+    if (!cJSON_GetU64(npdm_json, "title_id_range_min", &acid->TitleIdRangeMin)) {
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    if (!cJSON_GetU64(npdm_json, "title_id_range_max", &acid->TitleIdRangeMax)) {
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    
+    /* ACI0. */
+    aci0->Magic = MAGIC_ACI0; /* "ACI0" */
+    /* Parse title_id. */
+    if (!cJSON_GetU64(npdm_json, "title_id", &aci0->TitleId)) {
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    
+    /* Fac. */
+    fsaccess = cJSON_GetObjectItemCaseSensitive(npdm_json, "filesystem_access");
+    if (!cJSON_IsObject(fsaccess)) {
+        fprintf(stderr, "Filesystem Access must be an object!\n");
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    
+    FilesystemAccessControl *fac = (FilesystemAccessControl *)((u8 *)acid + sizeof(NpdmAcid));
+    fac->Version = 1;
+    if (!cJSON_GetU64(fsaccess, "permissions", &fac->Perms)) {
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    acid->FacOffset = sizeof(NpdmAcid);
+    acid->FacSize = sizeof(FilesystemAccessControl);
+    acid->SacOffset = (acid->FacOffset + acid->FacSize + 0xF) & ~0xF;
+    
+    /* Fah. */
+    FilesystemAccessHeader *fah = (FilesystemAccessHeader *)((u8 *)aci0 + sizeof(NpdmAci0));
+    fah->Version = 1;
+    fah->Perms = fac->Perms;
+    fah->_0xC = 0x1C;
+    fah->_0x14 = 0x1C;
+    aci0->FahOffset = sizeof(NpdmAci0);
+    aci0->FahSize = sizeof(FilesystemAccessHeader);
+    aci0->SacOffset = (aci0->FahOffset + aci0->FahSize + 0xF) & ~0xF;
+    
+    /* Sac. */
+    services = cJSON_GetObjectItemCaseSensitive(npdm_json, "service_access");
+    if (!cJSON_IsObject(services)) {
+        fprintf(stderr, "Service Access must be an object!\n");
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    
+    u8 *sac = (u8*)aci0 + aci0->SacOffset;
+    u32 sac_size = 0;
+    cJSON_ArrayForEach(service, services) {
+        if (!cJSON_IsBool(service)) {
+            fprintf(stderr, "Services must be of form service_name (str) : is_host (bool)\n");
+            status = 0;
+            goto NPDM_BUILD_END;
+        }
+        int cur_srv_len = strlen(service->string);
+        if (cur_srv_len > 8 || cur_srv_len == 0) {
+            fprintf(stderr, "Services must have name length 1 <= len <= 8!\n");
+            status = 0;
+            goto NPDM_BUILD_END;
+        }
+        u8 ctrl = (u8)(cur_srv_len - 1);
+        if (cJSON_IsTrue(service)) {
+            ctrl |= 0x80;
+        }
+        sac[sac_size++] = ctrl;
+        memcpy(sac + sac_size, service->string, cur_srv_len);
+        sac_size += cur_srv_len;
+    }
+    memcpy((u8 *)acid + acid->SacOffset, sac, sac_size);
+    aci0->SacSize = sac_size;
+    acid->SacSize = sac_size;
+    aci0->KacOffset = (aci0->SacOffset + aci0->SacSize + 0xF) & ~0xF;
+    acid->KacOffset = (acid->SacOffset + acid->SacSize + 0xF) & ~0xF;
+    
     /* Parse capabilities. */
     capabilities = cJSON_GetObjectItemCaseSensitive(npdm_json, "kernel_capabilities");
     if (!cJSON_IsObject(capabilities)) {
         fprintf(stderr, "Kernel Capabilities must be an object!\n");
         status = 0;
-        goto PARSE_CAPS_END;
+        goto NPDM_BUILD_END;
     }
     
+    u32 *caps = (u32 *)((u8 *)aci0 + aci0->KacOffset);
     u32 cur_cap = 0;
     u32 desc;
     cJSON_ArrayForEach(capability, capabilities) {
@@ -251,15 +424,10 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
         
         const cJSON *value = capability;
         if (!strcmp(type_str, "kernel_flags")) {
-            if (cur_cap + 1 > 0x20) {
-                fprintf(stderr, "Error: Too many capabilities!\n");
-                status = 0;
-                goto PARSE_CAPS_END;
-            }
             if (!cJSON_IsObject(value)) {
                 fprintf(stderr, "Kernel Flags Capability value must be object!\n");
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             u8 highest_prio = 0, lowest_prio = 0, lowest_cpu = 0, highest_cpu = 0;
             if (!cJSON_GetU8(value, "highest_thread_priority", &highest_prio) ||
@@ -267,7 +435,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 !cJSON_GetU8(value, "highest_cpu_id", &highest_cpu) ||
                 !cJSON_GetU8(value, "lowest_cpu_id", &lowest_cpu)) {
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             desc = highest_cpu;
             desc <<= 8;
@@ -276,12 +444,12 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             desc |= (lowest_prio & 0x3F);
             desc <<= 6;
             desc |= (highest_prio & 0x3F);
-            kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 4) | (0x0007));
+            caps[cur_cap++] = (u32)((desc << 4) | (0x0007));
         } else if (!strcmp(type_str, "syscalls")) {
             if (!cJSON_IsObject(value)) {
                 fprintf(stderr, "Syscalls Capability value must be object!\n");
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             u32 num_descriptors;
             u32 descriptors[6] = {0}; /* alignup(0x80/0x18); */
@@ -294,37 +462,27 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 } else if (!cJSON_IsString(cur_syscall) || !cJSON_GetU64(value, cur_syscall->string, &syscall_value)) {
                     fprintf(stderr, "Error: Syscall entries must be integers or hex strings.\n");
                     status = 0;
-                    goto PARSE_CAPS_END;
+                    goto NPDM_BUILD_END;
                 }
                 
                 if (syscall_value >= 0x80) {
                     fprintf(stderr, "Error: All syscall entries must be numbers in [0, 0x7F]\n");
                     status = 0;
-                    goto PARSE_CAPS_END;
+                    goto NPDM_BUILD_END;
                 }
                 descriptors[syscall_value / 0x18] |= (1UL << (syscall_value % 0x18));
             }
             for (unsigned int i = 0; i < 6; i++) {
                 if (descriptors[i]) {
-                    if (cur_cap + 1 > 0x20) {
-                        fprintf(stderr, "Error: Too many capabilities!\n");
-                        status = 0;
-                        goto PARSE_CAPS_END;
-                    }
                     desc = descriptors[i] | (i << 24);
-                    kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 5) | (0x000F));
+                    caps[cur_cap++] = (u32)((desc << 5) | (0x000F));
                 }
             }
         } else if (!strcmp(type_str, "map")) {
-            if (cur_cap + 2 > 0x20) {
-                fprintf(stderr, "Error: Too many capabilities!\n");
-                status = 0;
-                goto PARSE_CAPS_END;
-            }
             if (!cJSON_IsObject(value)) {
                 fprintf(stderr, "Map Capability value must be object!\n");
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             u64 map_address = 0;
             u64 map_size = 0;
@@ -335,39 +493,29 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 !cJSON_GetBoolean(value, "is_ro", &is_ro) ||
                 !cJSON_GetBoolean(value, "is_io", &is_io)) {
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             desc = (u32)((map_address >> 12) & 0x00FFFFFFULL);
             desc |= is_ro << 24;
-            kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 7) | (0x003F));
+            caps[cur_cap++] = (u32)((desc << 7) | (0x003F));
             
             desc = (u32)((map_size >> 12) & 0x00FFFFFFULL);
             is_io ^= 1;
             desc |= is_io << 24;
-            kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 7) | (0x003F));
+            caps[cur_cap++] = (u32)((desc << 7) | (0x003F));
         } else if (!strcmp(type_str, "map_page")) {
-            if (cur_cap + 1 > 0x20) {
-                fprintf(stderr, "Error: Too many capabilities!\n");
-                status = 0;
-                goto PARSE_CAPS_END;
-            }
             u64 page_address = 0;
             if (!cJSON_GetU64FromObjectValue(value, &page_address)) {
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             desc = (u32)((page_address >> 12) & 0x00FFFFFFULL);
-            kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 8) | (0x007F));
+            caps[cur_cap++] = (u32)((desc << 8) | (0x007F));
         } else if (!strcmp(type_str, "irq_pair")) {
-            if (cur_cap + 1 > 0x20) {
-                fprintf(stderr, "Error: Too many capabilities!\n");
-                status = 0;
-                goto PARSE_CAPS_END;
-            }
             if (!cJSON_IsArray(value) || cJSON_GetArraySize(value) != 2) {
                 fprintf(stderr, "Error: IRQ Pairs must have size 2 array value.\n");
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             const cJSON *irq = NULL;
             cJSON_ArrayForEach(irq, value) {
@@ -379,211 +527,120 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 } else {
                     fprintf(stderr, "Failed to parse IRQ value.\n");
                     status = 0;
-                    goto PARSE_CAPS_END;
+                    goto NPDM_BUILD_END;
                 }
             }
-            kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 12) | (0x07FF));
+            caps[cur_cap++] = (u32)((desc << 12) | (0x07FF));
         } else if (!strcmp(type_str, "application_type")) {
-            if (cur_cap + 1 > 0x20) {
-                fprintf(stderr, "Error: Too many capabilities!\n");
-                status = 0;
-                goto PARSE_CAPS_END;
-            }
             if (!cJSON_GetU16FromObjectValue(value, (u16 *)&desc)) {
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             desc &= 7;
-            kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 14) | (0x1FFF));
+            caps[cur_cap++] = (u32)((desc << 14) | (0x1FFF));
         } else if (!strcmp(type_str, "min_kernel_version")) {
-            if (cur_cap + 1 > 0x20) {
-                fprintf(stderr, "Error: Too many capabilities!\n");
-                status = 0;
-                goto PARSE_CAPS_END;
-            }
             u64 kern_ver = 0;
             if (cJSON_IsNumber(value)) {
                 kern_ver = (u64)value->valueint;   
             } else if (!cJSON_IsString(value) || !cJSON_GetU64FromObjectValue(value, &kern_ver)) {
                 fprintf(stderr, "Error: Kernel version must be integer or hex strings.\n");
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             desc = (kern_ver) & 0xFFFF;
-            kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 15) | (0x3FFF));
+            caps[cur_cap++] = (u32)((desc << 15) | (0x3FFF));
         } else if (!strcmp(type_str, "handle_table_size")) {
-            if (cur_cap + 1 > 0x20) {
-                fprintf(stderr, "Error: Too many capabilities!\n");
-                status = 0;
-                goto PARSE_CAPS_END;
-            }
             if (!cJSON_GetU16FromObjectValue(value, (u16 *)&desc)) {
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
-            kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 16) | (0x7FFF));
+            caps[cur_cap++] = (u32)((desc << 16) | (0x7FFF));
         } else if (!strcmp(type_str, "debug_flags")) {
-            if (cur_cap + 1 > 0x20) {
-                fprintf(stderr, "Error: Too many capabilities!\n");
-                status = 0;
-                goto PARSE_CAPS_END;
-            }
             if (!cJSON_IsObject(value)) {
                 fprintf(stderr, "Debug Flag Capability value must be object!\n");
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             int allow_debug = 0;
             int force_debug = 0;
             if (!cJSON_GetBoolean(value, "allow_debug", &allow_debug)) {
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             if (!cJSON_GetBoolean(value, "force_debug", &force_debug)) {
                 status = 0;
-                goto PARSE_CAPS_END;
+                goto NPDM_BUILD_END;
             }
             desc = (allow_debug & 1) | ((force_debug & 1) << 1);
-            kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 17) | (0xFFFF));
+            caps[cur_cap++] = (u32)((desc << 17) | (0xFFFF));
         }
     }
-    
-    for (u32 i = cur_cap; i < 0x20; i++) {
-        kip_hdr->Capabilities[i] = 0xFFFFFFFF;
+    aci0->KacSize = cur_cap * sizeof(u32);
+    acid->KacSize = aci0->KacSize;
+    memcpy((u8 *)acid + acid->KacOffset, caps, aci0->KacSize);
+        
+    header.AcidOffset = sizeof(header);
+    header.AcidSize = acid->KacOffset + acid->KacSize;
+    acid->Size = header.AcidSize - sizeof(acid->Signature);
+    header.Aci0Offset = (header.AcidOffset + header.AcidSize + 0xF) & ~0xF;
+    header.Aci0Size = aci0->KacOffset + aci0->KacSize;
+    u32 total_size = header.Aci0Offset + header.Aci0Size;
+    u8 *npdm = calloc(1, total_size);
+    if (npdm == NULL) {
+        fprintf(stderr, "Failed to allocate output!\n");
+        exit(EXIT_FAILURE);
     }
+    memcpy(npdm, &header, sizeof(header));
+    memcpy(npdm + header.AcidOffset, acid, header.AcidSize);
+    memcpy(npdm + header.Aci0Offset, aci0, header.Aci0Size);
+    free(acid);
+    free(aci0);
+    *dst = npdm;
+    *dst_size = total_size;
     
-    PARSE_CAPS_END:
+    status = 1;
+    NPDM_BUILD_END:
     cJSON_Delete(npdm_json);
     return status;
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 4) {
-        fprintf(stderr, "%s <elf-file> <json-file> <kip-file>\n", argv[0]);
+    if (argc != 3) {
+        fprintf(stderr, "%s <json-file> <npdm-file>\n", argv[0]);
         return EXIT_FAILURE;
     }
 
-    KipHeader kip_hdr = {0};
-    memcpy(kip_hdr.Magic, "KIP1", 4);
-    kip_hdr.Flags = 0x3F;
-
-    if (sizeof(KipHeader) != 0x100) {
+    void *npdm;
+    u32 npdm_size;
+    
+    if (sizeof(NpdmHeader) != 0x80 || sizeof(NpdmAcid) != 0x240 || sizeof(NpdmAci0) != 0x40) {
         fprintf(stderr, "Bad compile environment!\n");
         return EXIT_FAILURE;
     }
     
     size_t json_len;
-    uint8_t* json = ReadEntireFile(argv[2], &json_len);
+    uint8_t* json = ReadEntireFile(argv[1], &json_len);
     if (json == NULL) {
         fprintf(stderr, "Failed to read descriptor json!\n");
         return EXIT_FAILURE;
     }
     
-    ParseKipConfiguration(json, &kip_hdr);
-
-    size_t elf_len;
-    uint8_t* elf = ReadEntireFile(argv[1], &elf_len);
-    if (elf == NULL) {
-        fprintf(stderr, "Failed to open input!\n");
-        return EXIT_FAILURE;
-    }
-
-    if (elf_len < sizeof(Elf64_Ehdr)) {
-        fprintf(stderr, "Input file doesn't fit ELF header!\n");
-        return EXIT_FAILURE;
-    }
-
-    Elf64_Ehdr* hdr = (Elf64_Ehdr*) elf;
-    if (hdr->e_machine != EM_AARCH64) {
-        fprintf(stderr, "Invalid ELF: expected AArch64!\n");
-        return EXIT_FAILURE;
-    }
-
-    Elf64_Off ph_end = hdr->e_phoff + hdr->e_phnum * sizeof(Elf64_Phdr);
-
-    if (ph_end < hdr->e_phoff || ph_end > elf_len) {
-        fprintf(stderr, "Invalid ELF: phdrs outside file!\n");
-        return EXIT_FAILURE;
-    }
-
-    Elf64_Phdr* phdrs = (Elf64_Phdr*) &elf[hdr->e_phoff];
-    size_t i, j = 0;
-    size_t file_off = 0;
-    size_t dst_off = 0;
-    size_t tmpsize;
-
-    uint8_t* buf[3];
-    uint8_t* cmp[3];
-    size_t FileOffsets[3];
-
-    for (i=0; i<4; i++) {
-        Elf64_Phdr* phdr = NULL;
-        while (j < hdr->e_phnum) {
-            Elf64_Phdr* cur = &phdrs[j];
-            if (i < 2 || (i==2 && cur->p_type != PT_LOAD)) j++;
-            if (cur->p_type == PT_LOAD || i == 3) {
-                phdr = cur;
-                break;
-            }
-        }
-
-        if (phdr == NULL) {
-            fprintf(stderr, "Invalid ELF: expected 3 loadable phdrs and a bss!\n");
-            return EXIT_FAILURE;
-        }
-        
-        
-        kip_hdr.Segments[i].DstOff = dst_off;
-        
-        // .bss is special
-        if (i == 3) {
-            tmpsize = (phdr->p_filesz + 0xFFF) & ~0xFFF;
-            if ( phdr->p_memsz > tmpsize) {
-                kip_hdr.Segments[i].DecompSz = ((phdr->p_memsz - tmpsize) + 0xFFF) & ~0xFFF;
-            } else {
-                kip_hdr.Segments[i].DecompSz = 0;           
-            }
-            kip_hdr.Segments[i].CompSz = 0;
-            break;
-        }
-
-        FileOffsets[i] = file_off;
-        kip_hdr.Segments[i].DecompSz = phdr->p_filesz;
-        buf[i] = malloc(kip_hdr.Segments[i].DecompSz);
-
-        if (buf[i] == NULL) {
-            fprintf(stderr, "Out of memory!\n");
-            return EXIT_FAILURE;
-        }    
-
-        memset(buf[i], 0, kip_hdr.Segments[i].DecompSz);
-        
-        memcpy(buf[i], &elf[phdr->p_offset], phdr->p_filesz);
-        cmp[i] = BLZ_Code(buf[i], phdr->p_filesz, &kip_hdr.Segments[i].CompSz, BLZ_BEST);
-        
-        file_off += kip_hdr.Segments[i].CompSz;
-        dst_off += kip_hdr.Segments[i].DecompSz;
-        dst_off = (dst_off + 0xFFF) & ~0xFFF;
-    }
-
-    FILE* out = fopen(argv[3], "wb");
-
-    if (out == NULL) {
-        fprintf(stderr, "Failed to open output file!\n");
+    if (!CreateNpdm(json, &npdm, &npdm_size)) {
+        fprintf(stderr, "Failed to parse descriptor json!\n");
         return EXIT_FAILURE;
     }
     
-    // TODO check retvals
-
-    for (i=0; i<3; i++)
-    {
-        fseek(out, sizeof(kip_hdr) + FileOffsets[i], SEEK_SET);
-        fwrite(cmp[i], kip_hdr.Segments[i].CompSz, 1, out);
+    FILE *f_out = fopen(argv[2], "wb");
+    if (f_out == NULL) {
+        fprintf(stderr, "Failed to open %s for writing!\n", argv[2]);
+        return EXIT_FAILURE;
     }
+    if (fwrite(npdm, 1, npdm_size, f_out) != npdm_size) {
+        fprintf(stderr, "Failed to write NPDM to %s!\n", argv[2]);
+        return EXIT_FAILURE;
+    }
+    fclose(f_out);
+    free(npdm);
 
-    fseek(out, 0, SEEK_SET);
-    fwrite(&kip_hdr, sizeof(kip_hdr), 1, out);
-
-    fclose(out);
     return EXIT_SUCCESS;
 }

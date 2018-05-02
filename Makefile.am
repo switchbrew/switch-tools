@@ -1,5 +1,5 @@
 # Makefile.am -- Process this file with automake to produce Makefile.in
-bin_PROGRAMS = elf2nso elf2nro elf2kip build_pfs0 build_romfs nacptool nxlink
+bin_PROGRAMS = elf2nso elf2nro elf2kip build_pfs0 build_romfs nacptool npdmtool nxlink
 
 build_pfs0_SOURCES	=	src/build_pfs0.c src/types.h
 
@@ -12,6 +12,8 @@ elf2nso_SOURCES	=	src/elf2nso.c src/sha256.c src/sha256.h src/elf64.h src/elf_co
 elf2kip_SOURCES	=	src/elf2kip.c src/cJSON.c src/cJSON.h src/blz.c src/blz.h src/elf64.h src/elf_common.h
 
 nacptool_SOURCES	=	src/nacptool.c
+
+npdmtool_SOURCES	=	src/npdmtool.c src/cJSON.c src/cJSON.h 
 
 nxlink_SOURCES = src/nxlink.c
 

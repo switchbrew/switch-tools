@@ -19,10 +19,12 @@ elf2nro
 elf2nso
 elf2kip
 nacptool
+npdmtool
 nxlink
 *.o
 *.elf
 *.kip
 *.nro
 *.nso
+*.npdm
 *.json
