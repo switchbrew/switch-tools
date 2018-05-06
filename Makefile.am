@@ -13,14 +13,18 @@ elf2kip_SOURCES	=	src/elf2kip.c src/cJSON.c src/cJSON.h src/blz.c src/blz.h src/
 
 nacptool_SOURCES	=	src/nacptool.c
 
-npdmtool_SOURCES	=	src/npdmtool.c src/cJSON.c src/cJSON.h 
+npdmtool_SOURCES	=	src/npdmtool.c src/cJSON.c src/cJSON.h
 
 nxlink_SOURCES = src/nxlink.c
 
 nxlink_CPPFLAGS = @ZLIB_CFLAGS@
+nxlink_LDADD = @ZLIB_LIBS@ @NET_LIBS@
 
+elf2nso_CPPFLAGS = @LZ4_CFLAGS@
 elf2nso_LDADD = @LZ4_LIBS@
 
-nxlink_LDADD = @ZLIB_LIBS@ @NET_LIBS@
+elf2nro_CPPFLAGS = @LZ4_CFLAGS@
+elf2nro_LDADD = @LZ4_LIBS@
+
 
 EXTRA_DIST = autogen.sh
