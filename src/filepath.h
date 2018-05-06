@@ -7,8 +7,6 @@
 #include <wchar.h>
 #endif
 
-#define __USE_LARGEFILE64
-
 #define MAX_SWITCHPATH 0x300
 
 typedef enum {
@@ -22,16 +20,9 @@ inline int fseeko64(FILE *__stream, long long __off, int __whence)
 {
     return _fseeki64(__stream, __off, __whence);
 }
-#elif __APPLE__ || __CYGWIN__ 
-    // OS X file I/O is 64bit
-    #define fseeko64 fseek
-#elif __linux__
-    extern int fseeko64 (FILE *__stream, __off64_t __off, int __whence);
 #else
-    /* fseeko is guaranteed by POSIX, hopefully the OS made their off_t definition 64-bit;
-     * known sane on FreeBSD and OpenBSD.
-     */
-    #define fseeko64 fseeko
+    /* off_t is 64-bit with large file support */
+    #define fseeko64 fseek
 #endif
 
 #ifdef _WIN32
@@ -53,12 +44,12 @@ typedef struct _stati64 os_stat64_t;
 typedef char oschar_t; /* utf-8 */
 typedef DIR osdir_t;
 typedef struct dirent osdirent_t;
-typedef struct stat64 os_stat64_t;
+typedef struct stat os_stat64_t;
 
 #define os_fopen fopen
 #define os_opendir opendir
 #define os_readdir readdir
-#define os_stat stat64
+#define os_stat stat
 #define os_fclose fclose
 
 #define OS_MODE_READ "rb"
