@@ -130,7 +130,7 @@ void timeval_add (struct timeval *result, struct timeval *x, struct timeval *y) 
 static struct in_addr findSwitch(int retries) {
 //---------------------------------------------------------------------------------
 
-	printf("pinging switch");
+	printf("pinging switch\n");
 
     struct sockaddr_in s, remote, rs;
 	char recvbuf[256];
