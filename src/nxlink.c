@@ -132,7 +132,7 @@ static struct in_addr findSwitch(int retries) {
 
 	printf("pinging switch\n");
 
-    struct sockaddr_in s, remote, rs;
+	struct sockaddr_in s, remote, rs;
 	char recvbuf[256];
 	char mess[] = "nxboot";
 
@@ -433,10 +433,50 @@ void showHelp() {
 	puts("--address, -a   Hostname or IPv4 address of Switch");
 	puts("--retries, -r   number of times to ping before giving up");
 	puts("--path   , -p   set upload path for file");
+	puts("--args          args to send to nro");
 	puts("--server , -s   start server after completed upload");
 	puts("\n");
 }
 
+
+//---------------------------------------------------------------------------------
+int add_extra_args(int len, char *buf, char *extra_args) {
+//---------------------------------------------------------------------------------
+
+	if (NULL==extra_args) return len;
+
+
+	int extra_len = strlen(extra_args);
+
+	if (extra_len >= 2 && extra_args[0] == '"' && extra_args[extra_len-1] == '"' ) {
+		extra_len -= 2;
+		extra_args += 1;
+	}
+
+	char *dst = &buf[len];
+	char *src = extra_args;
+
+	do {
+		int c;
+
+		do {
+			c = *src++;
+			extra_len--;
+		} while ( c ==' ' && extra_len >= 0);
+
+		do {
+			*dst++ = c;
+			extra_len--;
+			c = *src++;
+		} while( c != ' ' && extra_len >= 0);
+
+		*dst++ = '\0';
+	} while (extra_len > 0 );
+
+	return dst - buf;
+}
+
+#define NRO_ARGS	1000
 
 //---------------------------------------------------------------------------------
 int main(int argc, char **argv) {
@@ -445,6 +485,7 @@ int main(int argc, char **argv) {
 	char *basepath = NULL;
 	char *finalpath = NULL;
 	char *endarg = NULL;
+	char *extra_args = NULL;
 	int retries = 10;
 	static int server = 0;
 
@@ -458,6 +499,7 @@ int main(int argc, char **argv) {
 			{"address", required_argument, 0,	'a'},
 			{"retries", required_argument, 0,	'r'},
 			{"path",    required_argument, 0,	'p'},
+			{"args",    required_argument, 0,  NRO_ARGS},
 			{"help",    no_argument,       0,	'h'},
 			{"server",  no_argument,       &server,  1 },
 			{0, 0, 0, 0}
@@ -494,6 +536,9 @@ int main(int argc, char **argv) {
 			break;
 		case 'h':
 			showHelp();
+			break;
+		case NRO_ARGS:
+			extra_args=optarg;
 			break;
 		}
 
@@ -551,6 +596,8 @@ int main(int argc, char **argv) {
 		strcpy(&cmdbuf[cmdlen+4],argv[index]);
 		cmdlen+= len + 1;
 	}
+
+	cmdlen = add_extra_args(cmdlen, &cmdbuf[4], extra_args);
 
 	cmdbuf[0] = cmdlen & 0xff;
 	cmdbuf[1] = (cmdlen>>8) & 0xff;
