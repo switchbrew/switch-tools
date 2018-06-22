@@ -464,6 +464,18 @@ int add_extra_args(int len, char *buf, char *extra_args) {
 			extra_len--;
 		} while ( c ==' ' && extra_len >= 0);
 
+		if ( c == '\"' || c == '\'') {
+			int quote = c;
+			do {
+				c = *src++;
+				if (c != quote) *dst++ = c;
+				extra_len--;
+			} while (c != quote && extra_len >= 0);
+
+			*dst++ = '\0';
+
+			continue;
+		}
 		do {
 			*dst++ = c;
 			extra_len--;
@@ -471,7 +483,7 @@ int add_extra_args(int len, char *buf, char *extra_args) {
 		} while( c != ' ' && extra_len >= 0);
 
 		*dst++ = '\0';
-	} while (extra_len > 0 );
+	} while (extra_len >= 0 );
 
 	return dst - buf;
 }
