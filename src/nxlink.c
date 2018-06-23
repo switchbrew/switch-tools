@@ -448,11 +448,6 @@ int add_extra_args(int len, char *buf, char *extra_args) {
 
 	int extra_len = strlen(extra_args);
 
-	if (extra_len >= 2 && extra_args[0] == '"' && extra_args[extra_len-1] == '"') {
-		extra_len -= 2;
-		extra_args += 1;
-	}
-
 	char *dst = &buf[len];
 	char *src = extra_args;
 
