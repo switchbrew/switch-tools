@@ -448,7 +448,7 @@ int add_extra_args(int len, char *buf, char *extra_args) {
 
 	int extra_len = strlen(extra_args);
 
-	if (extra_len >= 2 && extra_args[0] == '"' && extra_args[extra_len-1] == '"' ) {
+	if (extra_len >= 2 && extra_args[0] == '"' && extra_args[extra_len-1] == '"') {
 		extra_len -= 2;
 		extra_args += 1;
 	}
@@ -462,15 +462,15 @@ int add_extra_args(int len, char *buf, char *extra_args) {
 		do {
 			c = *src++;
 			extra_len--;
-		} while ( c ==' ' && extra_len >= 0);
+		} while(c ==' ' && extra_len >= 0);
 
-		if ( c == '\"' || c == '\'') {
+		if (c == '\"' || c == '\'') {
 			int quote = c;
 			do {
 				c = *src++;
 				if (c != quote) *dst++ = c;
 				extra_len--;
-			} while (c != quote && extra_len >= 0);
+			} while(c != quote && extra_len >= 0);
 
 			*dst++ = '\0';
 
@@ -480,10 +480,10 @@ int add_extra_args(int len, char *buf, char *extra_args) {
 			*dst++ = c;
 			extra_len--;
 			c = *src++;
-		} while( c != ' ' && extra_len >= 0);
+		} while(c != ' ' && extra_len >= 0);
 
 		*dst++ = '\0';
-	} while (extra_len >= 0 );
+	} while(extra_len >= 0);
 
 	return dst - buf;
 }
