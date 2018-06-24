@@ -270,7 +270,8 @@ void romfs_visit_dir(romfs_dirent_ctx_t *parent, romfs_ctx_t *romfs_ctx) {
             exit(EXIT_FAILURE);
         }
     }
-    
+	
+    os_closedir(dir);
     parent->child = child_dir_tree;
     parent->file = child_file_tree;
     
