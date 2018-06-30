@@ -507,7 +507,6 @@ int main(int argc, char* argv[]) {
     }
 
     Elf64_Phdr* phdrs = (Elf64_Phdr*) &elf[hdr->e_phoff];
-    size_t i, j = 0;
     size_t file_off = 0;
     size_t dst_off = 0;
     size_t tmpsize;
@@ -516,27 +515,49 @@ int main(int argc, char* argv[]) {
     uint8_t* cmp[3];
     size_t FileOffsets[3];
 
-    for (i=0; i<4; i++) {
-        Elf64_Phdr* phdr = NULL;
-        while (j < hdr->e_phnum) {
-            Elf64_Phdr* cur = &phdrs[j];
-            if (i < 2 || (i==2 && cur->p_type != PT_LOAD)) j++;
-            if (cur->p_type == PT_LOAD || i == 3) {
-                phdr = cur;
-                break;
+    Elf64_Phdr load_phdrs[4];
+    size_t num_load_phdrs = 0;
+    for (size_t i=0; i < hdr->e_phnum; i++) {
+        if (phdrs[i].p_type == PT_LOAD) {
+            if (num_load_phdrs == sizeof(load_phdrs)/sizeof(load_phdrs[0])) {
+                fprintf(stderr, "Invalid ELF: expected either 3 loadable phdrs (.text, .rodata, .data+.bss), or 4 loadable phdrs (.text, .rodata, .data, .bss)!\n");
+                return EXIT_FAILURE;
             }
+            load_phdrs[num_load_phdrs++] = phdrs[i];
         }
+    }
+    if (num_load_phdrs < 3 || num_load_phdrs > 4) {
+        fprintf(stderr, "Invalid ELF: expected either 3 loadable phdrs (.text, .rodata, .data+.bss), or 4 loadable phdrs (.text, .rodata, .data, .bss)!\n");
+        return EXIT_FAILURE;
+    }
 
-        if (phdr == NULL) {
-            fprintf(stderr, "Invalid ELF: expected 3 loadable phdrs and a bss!\n");
-            return EXIT_FAILURE;
-        }
-        
+    if (load_phdrs[0].p_flags != (PF_R | PF_X)) {
+        fprintf(stderr, "Invalid ELF: expected .text segment to be R-X\n");
+        return EXIT_FAILURE;
+    }
+    if (load_phdrs[1].p_flags != PF_R) {
+        fprintf(stderr, "Invalid ELF: expected .rodata segment to be R--\n");
+        return EXIT_FAILURE;
+    }
+    if (load_phdrs[2].p_flags != (PF_R | PF_W)) {
+        fprintf(stderr, "Invalid ELF: expected .data segment to be RW-\n");
+        return EXIT_FAILURE;
+    }
+    if (num_load_phdrs == 4 && load_phdrs[3].p_flags != (PF_R | PF_W)) {
+        fprintf(stderr, "Invalid ELF: expected .bss segment to be RW-\n");
+        return EXIT_FAILURE;
+    }
+
+    for (size_t i=0, j=0; i<4; i++) {
+        Elf64_Phdr* phdr = &load_phdrs[i];
         
         kip_hdr.Segments[i].DstOff = dst_off;
         
         // .bss is special
         if (i == 3) {
+            if (num_load_phdrs == 3) {
+                phdr = &load_phdrs[2]; // use .data phdr
+            }
             tmpsize = (phdr->p_filesz + 0xFFF) & ~0xFFF;
             if ( phdr->p_memsz > tmpsize) {
                 kip_hdr.Segments[i].DecompSz = ((phdr->p_memsz - tmpsize) + 0xFFF) & ~0xFFF;
@@ -575,7 +596,7 @@ int main(int argc, char* argv[]) {
     
     // TODO check retvals
 
-    for (i=0; i<3; i++)
+    for (size_t i=0; i<3; i++)
     {
         fseek(out, sizeof(kip_hdr) + FileOffsets[i], SEEK_SET);
         fwrite(cmp[i], kip_hdr.Segments[i].CompSz, 1, out);
