@@ -157,6 +157,25 @@ int main(int argc, char* argv[]) {
         nso_hdr.CompSz[i] = comp_sz[i];
         file_off += comp_sz[i];
     }
+    
+    /* Iterate over sections to find build id. */
+    size_t cur_sect_hdr_ofs = hdr->e_shoff;
+    for (unsigned int i = 0; i < hdr->e_shnum; i++) {
+        Elf64_Shdr *cur_shdr = (Elf64_Shdr *)(elf + cur_sect_hdr_ofs);
+        if (cur_shdr->sh_type == SHT_NOTE) {
+            Elf64_Nhdr *note_hdr = (Elf64_Nhdr *)(elf + cur_shdr->sh_offset);
+            u8 *note_name = (u8 *)((uintptr_t)note_hdr + sizeof(Elf64_Nhdr));
+            u8 *note_desc = note_name + note_hdr->n_namesz;
+            if (note_hdr->n_type == NT_GNU_BUILD_ID && note_hdr->n_namesz == 4 && memcmp(note_name, "GNU\x00", 4) == 0) {
+                size_t build_id_size = note_hdr->n_descsz;
+                if (build_id_size > 0x20) {
+                    build_id_size = 0x20;
+                }
+                memcpy(nso_hdr.BuildId, note_desc, build_id_size);
+            }
+        }
+        cur_sect_hdr_ofs += hdr->e_shentsize;
+    }
 
     FILE* out = fopen(argv[2], "wb");
 

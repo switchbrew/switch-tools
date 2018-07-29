@@ -995,5 +995,6 @@ typedef struct {
 #define	R_X86_64_TPOFF32	23	/* Offset in static TLS block */
 #define	R_X86_64_IRELATIVE	37
 
+#define NT_GNU_BUILD_ID     3   /* Note type for .note.gnu.build-id */
 
 #endif /* !_SYS_ELF_COMMON_H_ */
