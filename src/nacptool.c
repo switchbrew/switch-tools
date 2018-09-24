@@ -79,7 +79,7 @@ int main(int argc, char* argv[]) {
     int argi;
     u64 titleid=0;
     for (argi=6; argi<argc; argi++) {
-        if (strncmp(argv[argi], "--titleid=", 10)==0) sscanf(&argv[argi][10], "%016lX", &titleid);
+        if (strncmp(argv[argi], "--titleid=", 10)==0) sscanf(&argv[argi][10], "%016llX", &titleid);
     }
 
     for (i=0; i<12; i++) {//These are UTF-8.
