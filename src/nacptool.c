@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <inttypes.h>
 
 typedef uint64_t u64;
 typedef uint32_t u32;
@@ -79,7 +80,7 @@ int main(int argc, char* argv[]) {
     int argi;
     u64 titleid=0;
     for (argi=6; argi<argc; argi++) {
-        if (strncmp(argv[argi], "--titleid=", 10)==0) sscanf(&argv[argi][10], "%016llX", &titleid);
+        if (strncmp(argv[argi], "--titleid=", 10)==0) sscanf(&argv[argi][10], "%016" SCNx64, &titleid);
     }
 
     for (i=0; i<12; i++) {//These are UTF-8.
