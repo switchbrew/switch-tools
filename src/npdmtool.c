@@ -478,59 +478,93 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
                     caps[cur_cap++] = (u32)((desc << 5) | (0x000F));
                 }
             }
-        } else if (!strcmp(type_str, "map")) {
-            if (!cJSON_IsObject(value)) {
-                fprintf(stderr, "Map Capability value must be object!\n");
+        } else if (!strcmp(type_str, "maps")) {
+            if (!cJSON_IsArray(value)) {
+                fprintf(stderr, "Maps Capability value must be array!\n");
                 status = 0;
                 goto NPDM_BUILD_END;
             }
-            u64 map_address = 0;
-            u64 map_size = 0;
-            int is_ro;
-            int is_io;
-            if (!cJSON_GetU64(value, "address", &map_address) ||
-                !cJSON_GetU64(value, "size", &map_size) ||
-                !cJSON_GetBoolean(value, "is_ro", &is_ro) ||
-                !cJSON_GetBoolean(value, "is_io", &is_io)) {
+            const cJSON *cur_map = NULL;
+            cJSON_ArrayForEach(cur_map, value) {
+                if (!cJSON_IsObject(cur_map)) {
+                    fprintf(stderr, "Maps Capability content value must be object!\n");
+                    status = 0;
+                    goto NPDM_BUILD_END;
+                }
+                u64 map_address = 0;
+                u64 map_size = 0;
+                int is_ro;
+                int is_io;
+                if (!cJSON_GetU64(cur_map, "address", &map_address) ||
+                    !cJSON_GetU64(cur_map, "size", &map_size) ||
+                    !cJSON_GetBoolean(cur_map, "is_ro", &is_ro) ||
+                    !cJSON_GetBoolean(cur_map, "is_io", &is_io)) {
+                    status = 0;
+                    goto NPDM_BUILD_END;
+                }
+                desc = (u32)((map_address >> 12) & 0x00FFFFFFULL);
+                desc |= is_ro << 24;
+                caps[cur_cap++] = (u32)((desc << 7) | (0x003F));
+
+                desc = (u32)((map_size >> 12) & 0x00FFFFFFULL);
+                is_io ^= 1;
+                desc |= is_io << 24;
+                caps[cur_cap++] = (u32)((desc << 7) | (0x003F));
+            }
+        } else if (!strcmp(type_str, "map_pages")) {
+            if (!cJSON_IsArray(value)) {
+                fprintf(stderr, "Map Pages Capability value must be array!\n");
                 status = 0;
                 goto NPDM_BUILD_END;
             }
-            desc = (u32)((map_address >> 12) & 0x00FFFFFFULL);
-            desc |= is_ro << 24;
-            caps[cur_cap++] = (u32)((desc << 7) | (0x003F));
-            
-            desc = (u32)((map_size >> 12) & 0x00FFFFFFULL);
-            is_io ^= 1;
-            desc |= is_io << 24;
-            caps[cur_cap++] = (u32)((desc << 7) | (0x003F));
-        } else if (!strcmp(type_str, "map_page")) {
             u64 page_address = 0;
-            if (!cJSON_GetU64FromObjectValue(value, &page_address)) {
-                status = 0;
-                goto NPDM_BUILD_END;
+            const cJSON *cur_map_page = NULL;
+            cJSON_ArrayForEach(cur_map_page, value) {
+                if (!cJSON_GetU64FromObjectValue(cur_map_page, &page_address)) {
+                    status = 0;
+                    goto NPDM_BUILD_END;
+                }
+                desc = (u32)((page_address >> 12) & 0x00FFFFFFULL);
+                caps[cur_cap++] = (u32)((desc << 8) | (0x007F));
             }
-            desc = (u32)((page_address >> 12) & 0x00FFFFFFULL);
-            caps[cur_cap++] = (u32)((desc << 8) | (0x007F));
-        } else if (!strcmp(type_str, "irq_pair")) {
-            if (!cJSON_IsArray(value) || cJSON_GetArraySize(value) != 2) {
-                fprintf(stderr, "Error: IRQ Pairs must have size 2 array value.\n");
+        } else if (!strcmp(type_str, "irqs")) {
+            if (!cJSON_IsArray(value)) {
+                fprintf(stderr, "Error: IRQs must be in an array.\n");
                 status = 0;
                 goto NPDM_BUILD_END;
             }
             const cJSON *irq = NULL;
+            u16 lastirq = 0x400;
+            u16 curirq;
             cJSON_ArrayForEach(irq, value) {
-                desc <<= 10;
-                if (cJSON_IsNull(irq)) {
-                    desc |= 0x3FF;
-                } else if (cJSON_IsNumber(irq)) {
-                    desc |= ((u16)(irq->valueint)) & 0x3FF;
-                } else {
+                if (!cJSON_IsNumber(irq)) {
                     fprintf(stderr, "Failed to parse IRQ value.\n");
                     status = 0;
                     goto NPDM_BUILD_END;
                 }
+                curirq = (u16)irq->valueint;
+                if (curirq > 0x3FF) {
+                    fprintf(stderr, "IRQ should be between 0 and 0x3FF.\n");
+                    status = 0;
+                    goto NPDM_BUILD_END;
+                }
+
+                if (lastirq == 0x400) {
+                    /* We have to handle irqs in pair. Remember the first of each pair */
+                    lastirq = curirq & 0x3FF;
+                } else {
+                    /* Once we have a pair, store it in the caps */
+                    desc = (lastirq << 10) | (curirq & 0x3FF);
+                    caps[cur_cap++] = (u32)((desc << 12) | (0x07FF));
+                    desc = 0;
+                    lastirq = 0x400;
+                }
             }
-            caps[cur_cap++] = (u32)((desc << 12) | (0x07FF));
+            /* Handle last value in IRQ array. */
+            if (lastirq != 0x400) {
+                desc = (lastirq << 10) | 0x3FF;
+                caps[cur_cap++] = (u32)((desc << 12) | (0x07FF));
+            }
         } else if (!strcmp(type_str, "application_type")) {
             if (!cJSON_GetU16FromObjectValue(value, (u16 *)&desc)) {
                 status = 0;
