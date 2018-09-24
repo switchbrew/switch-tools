@@ -445,6 +445,10 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             }
             desc = (allow_debug & 1) | ((force_debug & 1) << 1);
             kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 17) | (0xFFFF));
+        } else {
+            fprintf(stderr, "Error: unknown capability %s\n", type_str);
+            status = 0;
+            goto PARSE_CAPS_END;
         }
     }
     
@@ -452,6 +456,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
         kip_hdr->Capabilities[i] = 0xFFFFFFFF;
     }
     
+    status = 1;
     PARSE_CAPS_END:
     cJSON_Delete(npdm_json);
     return status;
@@ -479,7 +484,10 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
     
-    ParseKipConfiguration(json, &kip_hdr);
+    if (!ParseKipConfiguration(json, &kip_hdr)) {
+        fprintf(stderr, "Failed to parse kip configuration!\n");
+        return EXIT_FAILURE;
+    }
 
     size_t elf_len;
     uint8_t* elf = ReadEntireFile(argv[1], &elf_len);
