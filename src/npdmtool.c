@@ -518,17 +518,18 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
                 goto NPDM_BUILD_END;
             }
             const cJSON *irq = NULL;
+            int desc_idx = 0;
             cJSON_ArrayForEach(irq, value) {
-                desc <<= 10;
                 if (cJSON_IsNull(irq)) {
-                    desc |= 0x3FF;
+                    desc |= 0x3FF << desc_idx;
                 } else if (cJSON_IsNumber(irq)) {
-                    desc |= ((u16)(irq->valueint)) & 0x3FF;
+                    desc |= (((u16)(irq->valueint)) & 0x3FF) << desc_idx;
                 } else {
                     fprintf(stderr, "Failed to parse IRQ value.\n");
                     status = 0;
                     goto NPDM_BUILD_END;
                 }
+                desc_idx += 10;
             }
             caps[cur_cap++] = (u32)((desc << 12) | (0x07FF));
         } else if (!strcmp(type_str, "application_type")) {
