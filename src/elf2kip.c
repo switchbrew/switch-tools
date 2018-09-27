@@ -370,17 +370,18 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 goto PARSE_CAPS_END;
             }
             const cJSON *irq = NULL;
+            int desc_idx = 0;
             cJSON_ArrayForEach(irq, value) {
-                desc <<= 10;
                 if (cJSON_IsNull(irq)) {
-                    desc |= 0x3FF;
+                    desc |= 0x3FF << desc_idx;
                 } else if (cJSON_IsNumber(irq)) {
-                    desc |= ((u16)(irq->valueint)) & 0x3FF;
+                    desc |= (((u16)(irq->valueint)) & 0x3FF) << desc_idx;
                 } else {
                     fprintf(stderr, "Failed to parse IRQ value.\n");
                     status = 0;
                     goto PARSE_CAPS_END;
                 }
+                desc_idx += 10;
             }
             kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 12) | (0x07FF));
         } else if (!strcmp(type_str, "application_type")) {
