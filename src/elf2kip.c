@@ -60,6 +60,17 @@ uint8_t* ReadEntireFile(const char* fn, size_t* len_out) {
     return buf;
 }
 
+int cJSON_GetString(const cJSON *obj, const char *field, const char **out) {
+  const cJSON *config = cJSON_GetObjectItemCaseSensitive(obj, field);
+  if (cJSON_IsString(config)) {
+    *out = config->valuestring;
+    return 1;
+  } else {
+    fprintf(stderr, "Failed to get %s (field not present).\n", field);
+    return 0;
+  }
+}
+
 int cJSON_GetU8(const cJSON *obj, const char *field, u8 *out) {
     const cJSON *config = cJSON_GetObjectItemCaseSensitive(obj, field);
     if (cJSON_IsNumber(config)) {
@@ -237,19 +248,37 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
 
     /* Parse capabilities. */
     capabilities = cJSON_GetObjectItemCaseSensitive(npdm_json, "kernel_capabilities");
-    if (!cJSON_IsObject(capabilities)) {
-        fprintf(stderr, "Kernel Capabilities must be an object!\n");
+    if (!(cJSON_IsArray(capabilities) || cJSON_IsObject(capabilities))) {
+        fprintf(stderr, "Kernel Capabilities must be an array!\n");
         status = 0;
         goto PARSE_CAPS_END;
     }
-    
+
+    int kac_obj = 0;
+    if (cJSON_IsObject(capabilities)) {
+        kac_obj = 1;
+        fprintf(stderr, "Using deprecated kernel_capabilities format. Please turn it into an array.\n");
+    }
+
     u32 cur_cap = 0;
     u32 desc;
     cJSON_ArrayForEach(capability, capabilities) {
         desc = 0;
-        const char *type_str = capability->string;
-        
-        const cJSON *value = capability;
+        const char *type_str;
+        const cJSON *value;
+
+        if (kac_obj) {
+            type_str = capability->string;
+            value = capability;
+        } else {
+            if (!cJSON_GetString(capability, "type", &type_str)) {
+                status = 0;
+                goto PARSE_CAPS_END;
+            }
+            value = cJSON_GetObjectItemCaseSensitive(capability, "value");
+        }
+
+
         if (!strcmp(type_str, "kernel_flags")) {
             if (cur_cap + 1 > 0x20) {
                 fprintf(stderr, "Error: Too many capabilities!\n");
