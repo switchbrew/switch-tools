@@ -113,6 +113,17 @@ uint8_t* ReadEntireFile(const char* fn, size_t* len_out) {
     return buf;
 }
 
+int cJSON_GetString(const cJSON *obj, const char *field, const char **out) {
+  const cJSON *config = cJSON_GetObjectItemCaseSensitive(obj, field);
+  if (cJSON_IsString(config)) {
+    *out = config->valuestring;
+    return 1;
+  } else {
+    fprintf(stderr, "Failed to get %s (field not present).\n", field);
+    return 0;
+  }
+}
+
 int cJSON_GetU8(const cJSON *obj, const char *field, u8 *out) {
     const cJSON *config = cJSON_GetObjectItemCaseSensitive(obj, field);
     if (cJSON_IsNumber(config)) {
@@ -409,20 +420,37 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     
     /* Parse capabilities. */
     capabilities = cJSON_GetObjectItemCaseSensitive(npdm_json, "kernel_capabilities");
-    if (!cJSON_IsObject(capabilities)) {
-        fprintf(stderr, "Kernel Capabilities must be an object!\n");
+    if (!(cJSON_IsArray(capabilities) || cJSON_IsObject(capabilities))) {
+        fprintf(stderr, "Kernel Capabilities must be an array!\n");
         status = 0;
         goto NPDM_BUILD_END;
     }
-    
+
+    int kac_obj = 0;
+    if (cJSON_IsObject(capabilities)) {
+        kac_obj = 1;
+        fprintf(stderr, "Using deprecated kernel_capabilities format. Please turn it into an array.\n");
+    }
+
     u32 *caps = (u32 *)((u8 *)aci0 + aci0->KacOffset);
     u32 cur_cap = 0;
     u32 desc;
     cJSON_ArrayForEach(capability, capabilities) {
         desc = 0;
-        const char *type_str = capability->string;
-        
-        const cJSON *value = capability;
+        const char *type_str;
+        const cJSON *value;
+
+        if (kac_obj) {
+          type_str = capability->string;
+          value = capability;
+        } else {
+          if (!cJSON_GetString(capability, "type", &type_str)) {
+            status = 0;
+            goto NPDM_BUILD_END;
+          }
+          value = cJSON_GetObjectItemCaseSensitive(capability, "value");
+        }
+
         if (!strcmp(type_str, "kernel_flags")) {
             if (!cJSON_IsObject(value)) {
                 fprintf(stderr, "Kernel Flags Capability value must be object!\n");
@@ -542,7 +570,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         } else if (!strcmp(type_str, "min_kernel_version")) {
             u64 kern_ver = 0;
             if (cJSON_IsNumber(value)) {
-                kern_ver = (u64)value->valueint;   
+                kern_ver = (u64)value->valueint;
             } else if (!cJSON_IsString(value) || !cJSON_GetU64FromObjectValue(value, &kern_ver)) {
                 fprintf(stderr, "Error: Kernel version must be integer or hex strings.\n");
                 status = 0;
