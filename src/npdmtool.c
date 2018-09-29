@@ -383,35 +383,93 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     aci0->SacOffset = (aci0->FahOffset + aci0->FahSize + 0xF) & ~0xF;
     
     /* Sac. */
-    services = cJSON_GetObjectItemCaseSensitive(npdm_json, "service_access");
-    if (!cJSON_IsObject(services)) {
-        fprintf(stderr, "Service Access must be an object!\n");
+    u8 *sac = (u8*)aci0 + aci0->SacOffset;
+    u32 sac_size = 0;
+
+    services = cJSON_GetObjectItemCaseSensitive(npdm_json, "service_host");
+    if (!cJSON_IsArray(services)) {
+        fprintf(stderr, "Service Host must be an array!\n");
         status = 0;
         goto NPDM_BUILD_END;
     }
-    
-    u8 *sac = (u8*)aci0 + aci0->SacOffset;
-    u32 sac_size = 0;
+
     cJSON_ArrayForEach(service, services) {
-        if (!cJSON_IsBool(service)) {
-            fprintf(stderr, "Services must be of form service_name (str) : is_host (bool)\n");
+        int is_host = 1;
+        char *service_name;
+
+        if (!cJSON_IsString(service)) {
+            fprintf(stderr, "service_access must be an array of string\n");
             status = 0;
             goto NPDM_BUILD_END;
         }
-        int cur_srv_len = strlen(service->string);
+        service_name = service->valuestring;
+
+        int cur_srv_len = strlen(service_name);
         if (cur_srv_len > 8 || cur_srv_len == 0) {
             fprintf(stderr, "Services must have name length 1 <= len <= 8!\n");
             status = 0;
             goto NPDM_BUILD_END;
         }
         u8 ctrl = (u8)(cur_srv_len - 1);
-        if (cJSON_IsTrue(service)) {
+        if (is_host) {
             ctrl |= 0x80;
         }
         sac[sac_size++] = ctrl;
-        memcpy(sac + sac_size, service->string, cur_srv_len);
+        memcpy(sac + sac_size, service_name, cur_srv_len);
         sac_size += cur_srv_len;
     }
+
+    services = cJSON_GetObjectItemCaseSensitive(npdm_json, "service_access");
+    if (!(cJSON_IsObject(services) || cJSON_IsArray(services))) {
+      fprintf(stderr, "Service Access must be an array!\n");
+      status = 0;
+      goto NPDM_BUILD_END;
+    }
+
+    int sac_obj = 0;
+    if (cJSON_IsObject(services)) {
+      sac_obj = 1;
+      fprintf(stderr, "Using deprecated service_access format. Please turn it into an array.\n");
+    }
+
+    cJSON_ArrayForEach(service, services) {
+        int is_host = 0;
+        char *service_name;
+
+        if (sac_obj) {
+            if (!cJSON_IsBool(service)) {
+                fprintf(stderr, "Services must be of form service_name (str) : is_host (bool)\n");
+                status = 0;
+                goto NPDM_BUILD_END;
+            }
+            is_host = cJSON_IsTrue(service);
+            service_name = service->string;
+        } else {
+            if (!cJSON_IsString(service)) {
+                fprintf(stderr, "service_access must be an array of string\n");
+                status = 0;
+                goto NPDM_BUILD_END;
+            }
+            is_host = 0;
+            service_name = service->valuestring;
+        }
+
+        int cur_srv_len = strlen(service_name);
+        if (cur_srv_len > 8 || cur_srv_len == 0) {
+            fprintf(stderr, "Services must have name length 1 <= len <= 8!\n");
+            status = 0;
+            goto NPDM_BUILD_END;
+        }
+        u8 ctrl = (u8)(cur_srv_len - 1);
+        if (is_host) {
+            ctrl |= 0x80;
+        }
+        sac[sac_size++] = ctrl;
+        memcpy(sac + sac_size, service_name, cur_srv_len);
+        sac_size += cur_srv_len;
+    }
+
+
     memcpy((u8 *)acid + acid->SacOffset, sac, sac_size);
     aci0->SacSize = sac_size;
     acid->SacSize = sac_size;
