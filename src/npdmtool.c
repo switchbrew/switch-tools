@@ -387,7 +387,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     u32 sac_size = 0;
 
     services = cJSON_GetObjectItemCaseSensitive(npdm_json, "service_host");
-    if (!cJSON_IsArray(services)) {
+    if (services != NULL && !cJSON_IsArray(services)) {
         fprintf(stderr, "Service Host must be an array!\n");
         status = 0;
         goto NPDM_BUILD_END;
@@ -420,14 +420,14 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     }
 
     services = cJSON_GetObjectItemCaseSensitive(npdm_json, "service_access");
-    if (!(cJSON_IsObject(services) || cJSON_IsArray(services))) {
+    if (!(services == NULL || cJSON_IsObject(services) || cJSON_IsArray(services))) {
       fprintf(stderr, "Service Access must be an array!\n");
       status = 0;
       goto NPDM_BUILD_END;
     }
 
     int sac_obj = 0;
-    if (cJSON_IsObject(services)) {
+    if (services != NULL && cJSON_IsObject(services)) {
       sac_obj = 1;
       fprintf(stderr, "Using deprecated service_access format. Please turn it into an array.\n");
     }
