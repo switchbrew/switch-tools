@@ -79,7 +79,9 @@ typedef struct {
     u64 _0x10;
     u32 ProcessCategory;
     u32 MainThreadStackSize;
-    char Name[0x50];
+    char Name[0x10];
+    char ProductCode[0x10];
+    u8 _0x40[0x30];
     u32 Aci0Offset;
     u32 Aci0Size;
     u32 AcidOffset;
@@ -279,6 +281,12 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         fprintf(stderr, "Failed to get title name (name field not present).\n");
         status = 0;
         goto NPDM_BUILD_END;
+    }
+
+    /* Parse product code. */
+    const cJSON *product_code = cJSON_GetObjectItemCaseSensitive(npdm_json, "product_code");
+    if (cJSON_IsString(product_code) && (product_code->valuestring != NULL)) {
+        strncpy(header.ProductCode, product_code->valuestring, sizeof(header.ProductCode) - 1);
     }
     
     /* Parse main_thread_stack_size. */
