@@ -282,12 +282,6 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         status = 0;
         goto NPDM_BUILD_END;
     }
-
-    /* Parse product code. */
-    const cJSON *product_code = cJSON_GetObjectItemCaseSensitive(npdm_json, "product_code");
-    if (cJSON_IsString(product_code) && (product_code->valuestring != NULL)) {
-        strncpy(header.ProductCode, product_code->valuestring, sizeof(header.ProductCode) - 1);
-    }
     
     /* Parse main_thread_stack_size. */
     u64 stack_size = 0;
