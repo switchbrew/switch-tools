@@ -79,7 +79,9 @@ typedef struct {
     u64 _0x10;
     u32 ProcessCategory;
     u32 MainThreadStackSize;
-    char Name[0x50];
+    char Name[0x10];
+    char ProductCode[0x10];
+    u8 _0x40[0x30];
     u32 Aci0Offset;
     u32 Aci0Size;
     u32 AcidOffset;
