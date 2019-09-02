@@ -543,7 +543,7 @@ int main(int argc, char **argv) {
 			break;
 		case 'h':
 			showHelp();
-			break;
+			return 1;
 		case NRO_ARGS:
 			extra_args=optarg;
 			break;
