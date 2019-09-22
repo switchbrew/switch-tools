@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <errno.h>
+#include <unistd.h>
 
 #ifndef __WIN32__
 #include <sys/socket.h>
@@ -738,6 +739,7 @@ int main(int argc, char **argv) {
 									}
 								}
 							}
+							usleep(10);
 						}
 						printf("exiting ... \n");
 					}
