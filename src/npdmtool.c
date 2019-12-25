@@ -76,7 +76,8 @@ typedef struct {
     u8 _0xD;
     u8 MainThreadPriority;
     u8 DefaultCpuId;
-    u64 _0x10;
+    u32 _0x10;
+    u32 SystemResourceSize;
     u32 ProcessCategory;
     u32 MainThreadStackSize;
     char Name[0x10];
@@ -305,6 +306,11 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         status = 0;
         goto NPDM_BUILD_END;
     }
+
+    u64 system_resource_size;
+    if(cJSON_GetU64(npdm_json, "system_resource_size", &system_resource_size)) // optional
+        header.SystemResourceSize = system_resource_size;
+
     if (!cJSON_GetU8(npdm_json, "process_category", (u8 *)&header.ProcessCategory)) {
         status = 0;
         goto NPDM_BUILD_END;
