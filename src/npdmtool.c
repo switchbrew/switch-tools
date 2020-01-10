@@ -220,6 +220,32 @@ int cJSON_GetU64(const cJSON *obj, const char *field, u64 *out) {
     }
 }
 
+int cJSON_GetU32(const cJSON *obj, const char *field, u32 *out) {
+    const cJSON *config = cJSON_GetObjectItemCaseSensitive(obj, field);
+    if (cJSON_IsString(config) && (config->valuestring != NULL)) {
+        char *endptr = NULL;
+        *out = strtoul(config->valuestring, &endptr, 16);
+        if (config->valuestring == endptr) {
+            fprintf(stderr, "Failed to get %s (empty string)\n", field);
+            return 0;
+        } else if (errno == ERANGE) {
+            fprintf(stderr, "Failed to get %s (value out of range)\n", field);
+            return 0;
+        } else if (errno == EINVAL) {
+            fprintf(stderr, "Failed to get %s (not base16 string)\n", field);
+            return 0;
+        } else if (errno) {
+            fprintf(stderr, "Failed to get %s (unknown error)\n", field);
+            return 0;
+        } else {
+            return 1;
+        }
+    } else {
+        fprintf(stderr, "Failed to get %s (field not present).\n", field);
+        return 0;
+    }
+}
+
 int cJSON_GetU64FromObjectValue(const cJSON *config, u64 *out) {
     if (cJSON_IsString(config) && (config->valuestring != NULL)) {
         char *endptr = NULL;
@@ -307,9 +333,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         goto NPDM_BUILD_END;
     }
 
-    u64 system_resource_size;
-    if(cJSON_GetU64(npdm_json, "system_resource_size", &system_resource_size)) // optional
-        header.SystemResourceSize = system_resource_size;
+    cJSON_GetU32(npdm_json, "system_resource_size", &header.SystemResourceSize); // optional
 
     if (!cJSON_GetU8(npdm_json, "process_category", (u8 *)&header.ProcessCategory)) {
         status = 0;
