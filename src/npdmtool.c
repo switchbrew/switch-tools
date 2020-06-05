@@ -435,7 +435,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     sdois = cJSON_GetObjectItemCaseSensitive(fsaccess, "save_data_owner_ids");
     if (cJSON_IsArray(sdois)) {
         int idx = 0;
-        u64 *save_data_owner_id = (u64 *)((u8 *)fac + sizeof(FilesystemAccessControl));
+        u64 *save_data_owner_id = (u64 *)((u8 *)fac + sizeof(FilesystemAccessControl) + fac->CoiCount * sizeof(u64));
         cJSON_ArrayForEach(sdoi, sdois) {
             if (!cJSON_GetU64FromObjectValue(sdoi, save_data_owner_id)) {
                 status = 0;
