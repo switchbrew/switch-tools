@@ -31,8 +31,6 @@ typedef struct {
 } FilesystemAccessControl;
 #pragma pack(pop)
 
-_Static_assert(sizeof(FilesystemAccessControl) == 0x2c, "size");
-
 #pragma pack(push, 1)
 typedef struct {
     u32 Version;
