@@ -448,7 +448,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     }
 
     acid->FacOffset = sizeof(NpdmAcid);
-    acid->FacSize = sizeof(FilesystemAccessControl) + fac->CoiCount * 8 + fac->SdoiCount * 8;
+    acid->FacSize = sizeof(FilesystemAccessControl) + fac->CoiCount * sizeof(u64) + fac->SdoiCount * sizeof(u64);
     acid->SacOffset = (acid->FacOffset + acid->FacSize + 0xF) & ~0xF;
 
     /* Fah. */
@@ -456,9 +456,9 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     fah->Version = 1;
     fah->Perms = fac->Perms;
     fah->CoiOffset = sizeof(FilesystemAccessHeader);
-    fah->CoiSize = fac->CoiCount ? 4 + fac->CoiCount * 8 : 0;
+    fah->CoiSize = fac->CoiCount ? 4 + fac->CoiCount * sizeof(u64) : 0;
     fah->SdoiOffset = fah->CoiOffset + fah->CoiSize;
-    fah->SdoiSize = fac->SdoiCount ? 4 + fac->SdoiCount * 8 : 0;
+    fah->SdoiSize = fac->SdoiCount ? 4 + fac->SdoiCount * sizeof(u64) : 0;
 
     if (fac->CoiCount) {
         u32 *count = (u32 *)((u8 *)fah + fah->CoiOffset);
