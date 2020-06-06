@@ -19,9 +19,15 @@ typedef uint8_t u8;
 /* FAC, FAH need to be tightly packed. */
 #pragma pack(push, 1)
 typedef struct {
-    u32 Version;
+    u8 Version;
+    u8 CoiCount;
+    u8 SdoiCount;
+    u8 pad;
     u64 Perms;
-    u8 _0xC[0x20];
+    u64 CoiMin;
+    u64 CoiMax;
+    u64 SdoiMin;
+    u64 SdoiMax;
 } FilesystemAccessControl;
 #pragma pack(pop)
 
@@ -29,10 +35,10 @@ typedef struct {
 typedef struct {
     u32 Version;
     u64 Perms;
-    u32 _0xC;
-    u32 _0x10;
-    u32 _0x14;
-    u32 _0x18;
+    u32 CoiOffset;
+    u32 CoiSize;
+    u32 SdoiOffset;
+    u32 SdoiSize;
 } FilesystemAccessHeader;
 #pragma pack(pop)
 
@@ -284,6 +290,10 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     const cJSON *service = NULL;
     const cJSON *services = NULL;
     const cJSON *fsaccess = NULL;
+    const cJSON *cois = NULL;
+    const cJSON *coi = NULL;
+    const cJSON *sdois = NULL;
+    const cJSON *sdoi = NULL;
         
     int status = 0;
     cJSON *npdm_json = cJSON_Parse(json);
@@ -400,20 +410,88 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         status = 0;
         goto NPDM_BUILD_END;
     }
+
+    cJSON_GetU64(fsaccess, "content_owner_id_min", &fac->CoiMin);
+    cJSON_GetU64(fsaccess, "content_owner_id_max", &fac->CoiMax);
+
+    cois = cJSON_GetObjectItemCaseSensitive(fsaccess, "content_owner_ids");
+    if (cJSON_IsArray(cois)) {
+        int idx = 0;
+        u64 *content_owner_id = (u64 *)((u8 *)fac + sizeof(FilesystemAccessControl));
+        cJSON_ArrayForEach(coi, cois) {
+            if (!cJSON_GetU64FromObjectValue(coi, content_owner_id)) {
+                status = 0;
+                goto NPDM_BUILD_END;
+            }
+            ++content_owner_id;
+            ++idx;
+        }
+        fac->CoiCount = idx;
+    }
+
+    cJSON_GetU64(fsaccess, "save_data_owner_id_min", &fac->SdoiMin);
+    cJSON_GetU64(fsaccess, "save_data_owner_id_max", &fac->SdoiMax);
+
+    sdois = cJSON_GetObjectItemCaseSensitive(fsaccess, "save_data_owner_ids");
+    if (cJSON_IsArray(sdois)) {
+        int idx = 0;
+        u64 *save_data_owner_id = (u64 *)((u8 *)fac + sizeof(FilesystemAccessControl) + fac->CoiCount * sizeof(u64));
+        cJSON_ArrayForEach(sdoi, sdois) {
+            if (!cJSON_GetU64FromObjectValue(sdoi, save_data_owner_id)) {
+                status = 0;
+                goto NPDM_BUILD_END;
+            }
+            ++save_data_owner_id;
+            ++idx;
+        }
+        fac->SdoiCount = idx;
+    }
+
     acid->FacOffset = sizeof(NpdmAcid);
-    acid->FacSize = sizeof(FilesystemAccessControl);
+    acid->FacSize = sizeof(FilesystemAccessControl) + fac->CoiCount * sizeof(u64) + fac->SdoiCount * sizeof(u64);
     acid->SacOffset = (acid->FacOffset + acid->FacSize + 0xF) & ~0xF;
-    
+
     /* Fah. */
     FilesystemAccessHeader *fah = (FilesystemAccessHeader *)((u8 *)aci0 + sizeof(NpdmAci0));
     fah->Version = 1;
     fah->Perms = fac->Perms;
-    fah->_0xC = 0x1C;
-    fah->_0x14 = 0x1C;
+    fah->CoiOffset = sizeof(FilesystemAccessHeader);
+    fah->CoiSize = fac->CoiCount ? 4 + fac->CoiCount * sizeof(u64) : 0;
+    fah->SdoiOffset = fah->CoiOffset + fah->CoiSize;
+    fah->SdoiSize = fac->SdoiCount ? 4 + fac->SdoiCount * sizeof(u64) : 0;
+
+    if (fac->CoiCount) {
+        u32 *count = (u32 *)((u8 *)fah + fah->CoiOffset);
+        *count = fac->CoiCount;
+
+        u64 *id = (u64 *)((u8 *)count + sizeof(u32));
+        cJSON_ArrayForEach(coi, cois) {
+            if (!cJSON_GetU64FromObjectValue(coi, id)) {
+                status = 0;
+                goto NPDM_BUILD_END;
+            }
+            ++id;
+        }
+    }
+
+    if (fac->SdoiCount) {
+        u32 *count = (u32 *)((u8 *)fah + fah->SdoiOffset);
+        *count = fac->SdoiCount;
+
+        u64 *id = (u64 *)((u8 *)count + sizeof(u32));
+        cJSON_ArrayForEach(sdoi, sdois) {
+            if (!cJSON_GetU64FromObjectValue(sdoi, id)) {
+                status = 0;
+                goto NPDM_BUILD_END;
+            }
+            ++id;
+        }
+    }
+
     aci0->FahOffset = sizeof(NpdmAci0);
-    aci0->FahSize = sizeof(FilesystemAccessHeader);
+    aci0->FahSize = sizeof(FilesystemAccessHeader) + fah->CoiSize + fah->SdoiSize;
     aci0->SacOffset = (aci0->FahOffset + aci0->FahSize + 0xF) & ~0xF;
-    
+
     /* Sac. */
     u8 *sac = (u8*)aci0 + aci0->SacOffset;
     u32 sac_size = 0;
