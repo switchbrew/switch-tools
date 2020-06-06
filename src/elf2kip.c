@@ -31,7 +31,7 @@ typedef struct {
     u8  Unk;
     u8  Flags;
     KipSegment Segments[6];
-    u32 Capabilities[0x20];   
+    u32 Capabilities[0x20];
 } KipHeader;
 
 uint8_t* ReadEntireFile(const char* fn, size_t* len_out) {
@@ -132,10 +132,11 @@ int cJSON_GetBooleanOptional(const cJSON *obj, const char *field, int *out) {
             fprintf(stderr, "Unknown boolean value in %s.\n", field);
             return 0;
         }
-    } else {    
+        return 1;
+    } else {
         *out = 0;
+        return 0;
     }
-    return 1;
 }
 
 int cJSON_GetU64(const cJSON *obj, const char *field, u64 *out) {
@@ -202,7 +203,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
         status = 0;
         goto PARSE_CAPS_END;
     }
-    
+
     /* Parse name. */
     const cJSON *title_name = cJSON_GetObjectItemCaseSensitive(npdm_json, "name");
     if (cJSON_IsString(title_name) && (title_name->valuestring != NULL)) {
@@ -212,13 +213,24 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
         status = 0;
         goto PARSE_CAPS_END;
     }
-    
+
     /* Parse title_id. */
     if (!cJSON_GetU64(npdm_json, "title_id", &kip_hdr->TitleId)) {
         status = 0;
         goto PARSE_CAPS_END;
     }
-    
+
+    /* Parse use secure memory. */
+    /* This field is optional, and defaults to true (set before this function is called). */
+    int use_secure_memory = 1;
+    if (cJSON_GetBooleanOptional(npdm_json, "use_secure_memory", &use_secure_memory)) {
+        if (use_secure_memory) {
+            kip_hdr->Flags |= 0x20;
+        } else {
+            kip_hdr->Flags &= ~0x20;
+        }
+    }
+
     /* Parse main_thread_stack_size. */
     u64 stack_size = 0;
     if (!cJSON_GetU64(npdm_json, "main_thread_stack_size", &stack_size)) {
@@ -231,7 +243,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
         goto PARSE_CAPS_END;
     }
     kip_hdr->Segments[1].Attribute = (u32)(stack_size & 0xFFFFFFFF);
-    
+
     /* Parse various config. */
     if (!cJSON_GetU8(npdm_json, "main_thread_priority", &kip_hdr->MainThreadPriority)) {
         status = 0;
@@ -319,13 +331,13 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             u64 syscall_value = 0;
             cJSON_ArrayForEach(cur_syscall, value) {
                 if (cJSON_IsNumber(cur_syscall)) {
-                    syscall_value = (u64)cur_syscall->valueint;   
+                    syscall_value = (u64)cur_syscall->valueint;
                 } else if (!cJSON_IsString(cur_syscall) || !cJSON_GetU64(value, cur_syscall->string, &syscall_value)) {
                     fprintf(stderr, "Error: Syscall entries must be integers or hex strings.\n");
                     status = 0;
                     goto PARSE_CAPS_END;
                 }
-                
+
                 if (syscall_value >= 0x80) {
                     fprintf(stderr, "Error: All syscall entries must be numbers in [0, 0x7F]\n");
                     status = 0;
@@ -369,7 +381,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             desc = (u32)((map_address >> 12) & 0x00FFFFFFULL);
             desc |= is_ro << 24;
             kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 7) | (0x003F));
-            
+
             desc = (u32)((map_size >> 12) & 0x00FFFFFFULL);
             is_io ^= 1;
             desc |= is_io << 24;
@@ -433,7 +445,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             }
             u64 kern_ver = 0;
             if (cJSON_IsNumber(value)) {
-                kern_ver = (u64)value->valueint;   
+                kern_ver = (u64)value->valueint;
             } else if (!cJSON_IsString(value) || !cJSON_GetU64FromObjectValue(value, &kern_ver)) {
                 fprintf(stderr, "Error: Kernel version must be integer or hex strings.\n");
                 status = 0;
@@ -481,11 +493,11 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             goto PARSE_CAPS_END;
         }
     }
-    
+
     for (u32 i = cur_cap; i < 0x20; i++) {
         kip_hdr->Capabilities[i] = 0xFFFFFFFF;
     }
-    
+
     status = 1;
     PARSE_CAPS_END:
     cJSON_Delete(npdm_json);
@@ -506,14 +518,14 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Bad compile environment!\n");
         return EXIT_FAILURE;
     }
-    
+
     size_t json_len;
     uint8_t* json = ReadEntireFile(argv[2], &json_len);
     if (json == NULL) {
         fprintf(stderr, "Failed to read descriptor json!\n");
         return EXIT_FAILURE;
     }
-    
+
     if (!ParseKipConfiguration(json, &kip_hdr)) {
         fprintf(stderr, "Failed to parse kip configuration!\n");
         return EXIT_FAILURE;
@@ -569,17 +581,17 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "Invalid ELF: expected 3 loadable phdrs and a bss!\n");
             return EXIT_FAILURE;
         }
-        
-        
+
+
         kip_hdr.Segments[i].DstOff = dst_off;
-        
+
         // .bss is special
         if (i == 3) {
             tmpsize = (phdr->p_filesz + 0xFFF) & ~0xFFF;
             if ( phdr->p_memsz > tmpsize) {
                 kip_hdr.Segments[i].DecompSz = ((phdr->p_memsz - tmpsize) + 0xFFF) & ~0xFFF;
             } else {
-                kip_hdr.Segments[i].DecompSz = 0;           
+                kip_hdr.Segments[i].DecompSz = 0;
             }
             kip_hdr.Segments[i].CompSz = 0;
             break;
@@ -592,13 +604,13 @@ int main(int argc, char* argv[]) {
         if (buf[i] == NULL) {
             fprintf(stderr, "Out of memory!\n");
             return EXIT_FAILURE;
-        }    
+        }
 
         memset(buf[i], 0, kip_hdr.Segments[i].DecompSz);
-        
+
         memcpy(buf[i], &elf[phdr->p_offset], phdr->p_filesz);
         cmp[i] = BLZ_Code(buf[i], phdr->p_filesz, &kip_hdr.Segments[i].CompSz, BLZ_BEST);
-        
+
         file_off += kip_hdr.Segments[i].CompSz;
         dst_off += kip_hdr.Segments[i].DecompSz;
         dst_off = (dst_off + 0xFFF) & ~0xFFF;
@@ -610,7 +622,7 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Failed to open output file!\n");
         return EXIT_FAILURE;
     }
-    
+
     // TODO check retvals
 
     for (i=0; i<3; i++)
