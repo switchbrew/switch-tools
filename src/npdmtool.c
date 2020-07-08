@@ -411,44 +411,15 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         goto NPDM_BUILD_END;
     }
 
-    cJSON_GetU64(fsaccess, "content_owner_id_min", &fac->CoiMin);
-    cJSON_GetU64(fsaccess, "content_owner_id_max", &fac->CoiMax);
-
-    cois = cJSON_GetObjectItemCaseSensitive(fsaccess, "content_owner_ids");
-    if (cJSON_IsArray(cois)) {
-        int idx = 0;
-        u64 *content_owner_id = (u64 *)((u8 *)fac + sizeof(FilesystemAccessControl));
-        cJSON_ArrayForEach(coi, cois) {
-            if (!cJSON_GetU64FromObjectValue(coi, content_owner_id)) {
-                status = 0;
-                goto NPDM_BUILD_END;
-            }
-            ++content_owner_id;
-            ++idx;
-        }
-        fac->CoiCount = idx;
-    }
-
-    cJSON_GetU64(fsaccess, "save_data_owner_id_min", &fac->SdoiMin);
-    cJSON_GetU64(fsaccess, "save_data_owner_id_max", &fac->SdoiMax);
-
-    sdois = cJSON_GetObjectItemCaseSensitive(fsaccess, "save_data_owner_ids");
-    if (cJSON_IsArray(sdois)) {
-        int idx = 0;
-        u64 *save_data_owner_id = (u64 *)((u8 *)fac + sizeof(FilesystemAccessControl) + fac->CoiCount * sizeof(u64));
-        cJSON_ArrayForEach(sdoi, sdois) {
-            if (!cJSON_GetU64FromObjectValue(sdoi, save_data_owner_id)) {
-                status = 0;
-                goto NPDM_BUILD_END;
-            }
-            ++save_data_owner_id;
-            ++idx;
-        }
-        fac->SdoiCount = idx;
-    }
+    fac->CoiMin    = 0;
+    fac->CoiMax    = 0;
+    fac->SdoiMin   = 0;
+    fac->SdoiMax   = 0;
+    fac->CoiCount  = 0;
+    fac->SdoiCount = 0;
 
     acid->FacOffset = sizeof(NpdmAcid);
-    acid->FacSize = sizeof(FilesystemAccessControl) + fac->CoiCount * sizeof(u64) + fac->SdoiCount * sizeof(u64);
+    acid->FacSize = sizeof(FilesystemAccessControl);
     acid->SacOffset = (acid->FacOffset + acid->FacSize + 0xF) & ~0xF;
 
     /* Fah. */
@@ -456,14 +427,11 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     fah->Version = 1;
     fah->Perms = fac->Perms;
     fah->CoiOffset = sizeof(FilesystemAccessHeader);
-    fah->CoiSize = fac->CoiCount ? 4 + fac->CoiCount * sizeof(u64) : 0;
-    fah->SdoiOffset = fah->CoiOffset + fah->CoiSize;
-    fah->SdoiSize = fac->SdoiCount ? 4 + fac->SdoiCount * sizeof(u64) : 0;
+    fah->CoiSize   = 0;
 
-    if (fac->CoiCount) {
+    cois = cJSON_GetObjectItemCaseSensitive(fsaccess, "content_owner_ids");
+    if (cJSON_IsArray(cois)) {
         u32 *count = (u32 *)((u8 *)fah + fah->CoiOffset);
-        *count = fac->CoiCount;
-
         u64 *id = (u64 *)((u8 *)count + sizeof(u32));
         cJSON_ArrayForEach(coi, cois) {
             if (!cJSON_GetU64FromObjectValue(coi, id)) {
@@ -471,13 +439,20 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
                 goto NPDM_BUILD_END;
             }
             ++id;
+            ++(*count);
+        }
+
+        if (*count > 0) {
+            fah->CoiSize = sizeof(u32) + sizeof(u64) * (*count);
         }
     }
 
-    if (fac->SdoiCount) {
-        u32 *count = (u32 *)((u8 *)fah + fah->SdoiOffset);
-        *count = fac->SdoiCount;
+    fah->SdoiOffset = fah->CoiOffset + fah->CoiSize;
+    fah->SdoiSize   = 0;
 
+    sdois = cJSON_GetObjectItemCaseSensitive(fsaccess, "save_data_owner_ids");
+    if (cJSON_IsArray(sdois)) {
+        u32 *count = (u32 *)((u8 *)fah + fah->SdoiOffset);
         u64 *id = (u64 *)((u8 *)count + sizeof(u32));
         cJSON_ArrayForEach(sdoi, sdois) {
             if (!cJSON_GetU64FromObjectValue(sdoi, id)) {
@@ -485,6 +460,11 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
                 goto NPDM_BUILD_END;
             }
             ++id;
+            ++(*count);
+        }
+
+        if (*count > 0) {
+            fah->SdoiSize = sizeof(u32) + sizeof(u64) * (*count);
         }
     }
 
