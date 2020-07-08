@@ -194,7 +194,7 @@ int cJSON_GetBooleanOptional(const cJSON *obj, const char *field, int *out) {
             fprintf(stderr, "Unknown boolean value in %s.\n", field);
             return 0;
         }
-    } else {    
+    } else {
         *out = 0;
     }
     return 1;
@@ -294,7 +294,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     const cJSON *coi = NULL;
     const cJSON *sdois = NULL;
     const cJSON *sdoi = NULL;
-        
+
     int status = 0;
     cJSON *npdm_json = cJSON_Parse(json);
     if (npdm_json == NULL) {
@@ -305,11 +305,11 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         status = 0;
         goto NPDM_BUILD_END;
     }
-    
+
     /* Initialize default NPDM values. */
     header.Magic = MAGIC_META; /* "META" */
 
-    
+
     /* Parse name. */
     const cJSON *title_name = cJSON_GetObjectItemCaseSensitive(npdm_json, "name");
     if (cJSON_IsString(title_name) && (title_name->valuestring != NULL)) {
@@ -319,7 +319,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         status = 0;
         goto NPDM_BUILD_END;
     }
-    
+
     /* Parse main_thread_stack_size. */
     u64 stack_size = 0;
     if (!cJSON_GetU64(npdm_json, "main_thread_stack_size", &stack_size)) {
@@ -332,7 +332,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         goto NPDM_BUILD_END;
     }
     header.MainThreadStackSize = (u32)(stack_size & 0xFFFFFFFF);
-    
+
     /* Parse various config. */
     if (!cJSON_GetU8(npdm_json, "main_thread_priority", &header.MainThreadPriority)) {
         status = 0;
@@ -361,7 +361,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         goto NPDM_BUILD_END;
     }
     header.MmuFlags |= is_64_bit;
-    
+
     /* ACID. */
     memset(acid->Signature, 0, sizeof(acid->Signature));
     memset(acid->Modulus, 0, sizeof(acid->Modulus));
@@ -378,7 +378,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         goto NPDM_BUILD_END;
     }
     acid->Flags |= (pool_partition & 3) << 2;
-    
+
     if (!cJSON_GetU64(npdm_json, "title_id_range_min", &acid->TitleIdRangeMin)) {
         status = 0;
         goto NPDM_BUILD_END;
@@ -387,7 +387,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         status = 0;
         goto NPDM_BUILD_END;
     }
-    
+
     /* ACI0. */
     aci0->Magic = MAGIC_ACI0; /* "ACI0" */
     /* Parse title_id. */
@@ -395,7 +395,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         status = 0;
         goto NPDM_BUILD_END;
     }
-    
+
     /* Fac. */
     fsaccess = cJSON_GetObjectItemCaseSensitive(npdm_json, "filesystem_access");
     if (!cJSON_IsObject(fsaccess)) {
@@ -403,7 +403,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         status = 0;
         goto NPDM_BUILD_END;
     }
-    
+
     FilesystemAccessControl *fac = (FilesystemAccessControl *)((u8 *)acid + sizeof(NpdmAcid));
     fac->Version = 1;
     if (!cJSON_GetU64(fsaccess, "permissions", &fac->Perms)) {
@@ -585,7 +585,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     acid->SacSize = sac_size;
     aci0->KacOffset = (aci0->SacOffset + aci0->SacSize + 0xF) & ~0xF;
     acid->KacOffset = (acid->SacOffset + acid->SacSize + 0xF) & ~0xF;
-    
+
     /* Parse capabilities. */
     capabilities = cJSON_GetObjectItemCaseSensitive(npdm_json, "kernel_capabilities");
     if (!(cJSON_IsArray(capabilities) || cJSON_IsObject(capabilities))) {
@@ -654,13 +654,13 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
             u64 syscall_value = 0;
             cJSON_ArrayForEach(cur_syscall, value) {
                 if (cJSON_IsNumber(cur_syscall)) {
-                    syscall_value = (u64)cur_syscall->valueint;   
+                    syscall_value = (u64)cur_syscall->valueint;
                 } else if (!cJSON_IsString(cur_syscall) || !cJSON_GetU64(value, cur_syscall->string, &syscall_value)) {
                     fprintf(stderr, "Error: Syscall entries must be integers or hex strings.\n");
                     status = 0;
                     goto NPDM_BUILD_END;
                 }
-                
+
                 if (syscall_value >= 0x80) {
                     fprintf(stderr, "Error: All syscall entries must be numbers in [0, 0x7F]\n");
                     status = 0;
@@ -694,7 +694,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
             desc = (u32)((map_address >> 12) & 0x00FFFFFFULL);
             desc |= is_ro << 24;
             caps[cur_cap++] = (u32)((desc << 7) | (0x003F));
-            
+
             desc = (u32)((map_size >> 12) & 0x00FFFFFFULL);
             is_io ^= 1;
             desc |= is_io << 24;
@@ -775,7 +775,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     aci0->KacSize = cur_cap * sizeof(u32);
     acid->KacSize = aci0->KacSize;
     memcpy((u8 *)acid + acid->KacOffset, caps, aci0->KacSize);
-        
+
     header.AcidOffset = sizeof(header);
     header.AcidSize = acid->KacOffset + acid->KacSize;
     acid->Size = header.AcidSize - sizeof(acid->Signature);
@@ -794,7 +794,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     free(aci0);
     *dst = npdm;
     *dst_size = total_size;
-    
+
     status = 1;
     NPDM_BUILD_END:
     cJSON_Delete(npdm_json);
@@ -809,24 +809,24 @@ int main(int argc, char* argv[]) {
 
     void *npdm;
     u32 npdm_size;
-    
+
     if (sizeof(NpdmHeader) != 0x80 || sizeof(NpdmAcid) != 0x240 || sizeof(NpdmAci0) != 0x40) {
         fprintf(stderr, "Bad compile environment!\n");
         return EXIT_FAILURE;
     }
-    
+
     size_t json_len;
     uint8_t* json = ReadEntireFile(argv[1], &json_len);
     if (json == NULL) {
         fprintf(stderr, "Failed to read descriptor json!\n");
         return EXIT_FAILURE;
     }
-    
+
     if (!CreateNpdm(json, &npdm, &npdm_size)) {
         fprintf(stderr, "Failed to parse descriptor json!\n");
         return EXIT_FAILURE;
     }
-    
+
     FILE *f_out = fopen(argv[2], "wb");
     if (f_out == NULL) {
         fprintf(stderr, "Failed to open %s for writing!\n", argv[2]);
