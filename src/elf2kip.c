@@ -399,7 +399,48 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             }
             desc = (u32)((page_address >> 12) & 0x00FFFFFFULL);
             kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 8) | (0x007F));
-        } else if (!strcmp(type_str, "irq_pair")) {
+        } else if (!strcmp(type_str, "map_region")) {
+            if (cur_cap + 1 > 0x20) {
+                fprintf(stderr, "Error: Too many capabilities!\n");
+                status = 0;
+                goto PARSE_CAPS_END;
+            }
+            if (!cJSON_IsArray(value)) {
+                fprintf(stderr, "Map Region capability value must be array!\n");
+                status = 0;
+                goto PARSE_CAPS_END;
+            }
+            u8 regions[3] = {0};
+            int is_ro[3] = {0};
+            const cJSON *cur_region = NULL;
+            int index = 0;
+            cJSON_ArrayForEach(cur_region, value) {
+                if (index >= 3) {
+                    fprintf(stderr, "Too many region descriptors!\n");
+                    status = 0;
+                    goto PARSE_CAPS_END;
+                }
+                if (!cJSON_IsObject(cur_region)) {
+                    fprintf(stderr, "Region descriptor value must be object!\n");
+                    status = 0;
+                    goto PARSE_CAPS_END;
+                }
+
+                if (!cJSON_GetU8(cur_region, "region_type", &regions[index]) ||
+                    !cJSON_GetBoolean(cur_region, "is_ro", &is_ro[index])) {
+                    status = 0;
+                    goto PARSE_CAPS_END;
+                }
+
+                index++;
+            }
+
+            u32 capability = 0x3FF;
+            for (int i = 0; i < 3; ++i) {
+                capability |= ((regions[i] & 0x3F) | ((is_ro[i] & 1) << 6)) << (11 + 7 * i);
+            }
+            kip_hdr->Capabilities[cur_cap++] = capability;
+        }  else if (!strcmp(type_str, "irq_pair")) {
             if (cur_cap + 1 > 0x20) {
                 fprintf(stderr, "Error: Too many capabilities!\n");
                 status = 0;
