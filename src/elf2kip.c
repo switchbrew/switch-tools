@@ -440,7 +440,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 capability |= ((regions[i] & 0x3F) | ((is_ro[i] & 1) << 6)) << (11 + 7 * i);
             }
             kip_hdr->Capabilities[cur_cap++] = capability;
-        }  else if (!strcmp(type_str, "irq_pair")) {
+        } else if (!strcmp(type_str, "irq_pair")) {
             if (cur_cap + 1 > 0x20) {
                 fprintf(stderr, "Error: Too many capabilities!\n");
                 status = 0;
