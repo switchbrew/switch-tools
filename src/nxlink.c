@@ -14,11 +14,20 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <poll.h>
+#define closesocket close
 #else
 #include <winsock2.h>
 #include <ws2tcpip.h>
 typedef int socklen_t;
 typedef uint32_t in_addr_t;
+#define SHUT_RD SD_RECEIVE
+#define SHUT_WR SD_SEND
+#define SHUT_RDWR SD_BOTH
+#ifndef EWOULDBLOCK
+#define EWOULDBLOCK WSAEWOULDBLOCK
+#define poll WSAPoll
+#endif
 #endif
 
 #include <zlib.h>
@@ -30,100 +39,83 @@ typedef uint32_t in_addr_t;
 #define NETLOADER_CLIENT_PORT 28771
 
 
-char cmdbuf[3072];
-uint32_t cmdlen=0;
+static char cmdbuf[3072];
+static uint32_t cmdlen=0;
 
 //---------------------------------------------------------------------------------
-void shutdownSocket(int socket) {
+static void shutdownSocket(int socket, int flags) {
 //---------------------------------------------------------------------------------
-#ifdef __WIN32__
-	shutdown (socket, SD_SEND);
-	closesocket (socket);
-#else
-	close(socket);
-#endif
+	if (flags)
+		shutdown(socket, flags);
+	closesocket(socket);
 }
 
 //---------------------------------------------------------------------------------
-static int set_socket_nonblocking(int sock) {
+static int setSocketNonblocking(int sock) {
 //---------------------------------------------------------------------------------
 
-#ifndef __WIN32__
 	int flags = fcntl(sock, F_GETFL);
 
-	if(flags == -1) return -1;
+	if (flags == -1) return -1;
 
 	int rc = fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
-	if(rc != 0) return -1;
-
-#else
-	u_long opt = 1;
-	ioctlsocket(sock, FIONBIO, &opt);
-#endif
+	if (rc != 0) return -1;
 
 	return 0;
 }
 
-void socket_error(const char *msg) {
+//---------------------------------------------------------------------------------
+static int socketError(const char *msg) {
+//---------------------------------------------------------------------------------
 #ifndef _WIN32
+	int ret = errno;
+	if (ret == EAGAIN)
+		ret = EWOULDBLOCK;
 	perror(msg);
 #else
+	int ret = WSAGetLastError();
 	wchar_t *s = NULL;
 	FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-               NULL, WSAGetLastError(),
+               NULL, ret,
                MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
                (LPWSTR)&s, 0, NULL);
 	fprintf(stderr, "%S\n", s);
 	LocalFree(s);
+	if (ret == WSAEWOULDBLOCK)
+		ret = EWOULDBLOCK;
 #endif
-}
 
-/*---------------------------------------------------------------------------------
-	Subtract the `struct timeval' values Y from X,
-	storing the result in RESULT.
-	Return 1 if the difference is negative, otherwise 0.
-
-	From http://www.gnu.org/software/libtool/manual/libc/Elapsed-Time.html
----------------------------------------------------------------------------------*/
-int timeval_subtract (struct timeval *result, struct timeval *x, struct timeval *y) {
-//---------------------------------------------------------------------------------
-	struct timeval tmp;
-	tmp.tv_sec = y->tv_sec;
-	tmp.tv_usec = y->tv_usec;
-
-	/* Perform the carry for the later subtraction by updating y. */
-	if (x->tv_usec < tmp.tv_usec) {
-		int nsec = (tmp.tv_usec - x->tv_usec) / 1000000 + 1;
-		tmp.tv_usec -= 1000000 * nsec;
-		tmp.tv_sec += nsec;
-	}
-
-	if (x->tv_usec - tmp.tv_usec > 1000000) {
-		int nsec = (x->tv_usec - tmp.tv_usec) / 1000000;
-		tmp.tv_usec += 1000000 * nsec;
-		tmp.tv_sec -= nsec;
-	}
-
-	/*	Compute the time remaining to wait.
-		tv_usec is certainly positive. */
-	result->tv_sec = x->tv_sec - tmp.tv_sec;
-	result->tv_usec = x->tv_usec - tmp.tv_usec;
-
-	/* Return 1 if result is negative. */
-	return x->tv_sec < tmp.tv_sec;
+	return ret;
 }
 
 //---------------------------------------------------------------------------------
-void timeval_add (struct timeval *result, struct timeval *x, struct timeval *y) {
+int pollSocket(int fd, int events, int timeout) {
 //---------------------------------------------------------------------------------
-	result->tv_sec = x->tv_sec + y->tv_sec;
-	result->tv_usec = x->tv_usec + y->tv_usec;
+	struct pollfd pfd;
 
-	if ( result->tv_usec > 1000000) {
-		result->tv_sec += result->tv_usec / 1000000;
-		result->tv_usec = result->tv_usec % 1000000;
+	pfd.fd = fd;
+	pfd.events = events;
+	pfd.revents = 0;
+
+	int ret = poll(&pfd, 1, timeout);
+	if (ret < 0) {
+		socketError("poll");
+		return -1;
 	}
+
+	if (ret == 0)
+		return -1;
+
+	if (!(pfd.revents & events)) {
+		int err = 0;
+		int len = sizeof(err);
+		getsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&err, &len);
+		fprintf(stderr, "socket error 0x%x on poll\n", err);
+		return -1;
+	}
+
+	return 0;
 }
 
 //---------------------------------------------------------------------------------
@@ -137,7 +129,7 @@ static struct in_addr findSwitch(int retries) {
 	char mess[] = "nxboot";
 
 	int broadcastSock = socket(PF_INET, SOCK_DGRAM, 0);
-	if(broadcastSock < 0) socket_error("create send socket");
+	if (broadcastSock < 0) socketError("create send socket");
 
 	int optval = 1, len;
 	setsockopt(broadcastSock, SOL_SOCKET, SO_BROADCAST, (char *)&optval, sizeof(optval));
@@ -154,102 +146,89 @@ static struct in_addr findSwitch(int retries) {
 
 	int recvSock = socket(PF_INET, SOCK_DGRAM, 0);
 
-	if (recvSock < 0)  socket_error("create receive socket");
+	if (recvSock < 0)  socketError("create receive socket");
 
-	if(bind(recvSock, (struct sockaddr*) &rs, sizeof(rs)) < 0) socket_error("bind receive socket");
-	set_socket_nonblocking(recvSock);
+	if (bind(recvSock, (struct sockaddr*) &rs, sizeof(rs)) < 0) socketError("bind receive socket");
+	setSocketNonblocking(recvSock);
 
-	struct timeval wanted, now, result;
+	while (retries) {
+		if (sendto(broadcastSock, mess, strlen(mess), 0, (struct sockaddr *)&s, sizeof(s)) < 0)
+			socketError("sendto");
 
-	gettimeofday(&wanted, NULL);
-
-	int timeout = retries;
-	while(timeout) {
-		gettimeofday(&now, NULL);
-		if ( timeval_subtract(&result,&wanted,&now)) {
-			if(sendto(broadcastSock, mess, strlen(mess), 0, (struct sockaddr *)&s, sizeof(s)) < 0) socket_error("sendto");
-			result.tv_sec=0;
-			result.tv_usec=150000;
-			timeval_add(&wanted,&now,&result);
-			timeout--;
-		}
-		socklen_t socklen = sizeof(remote);
-		len = recvfrom(recvSock,recvbuf,sizeof(recvbuf),0,(struct sockaddr *)&remote,&socklen);
-		if ( len != -1) {
-			if ( strncmp("bootnx",recvbuf,strlen("bootnx")) == 0) {
-				break;
+		if (pollSocket(recvSock, POLLIN, 150) == 0) {
+			socklen_t socklen = sizeof(remote);
+			len = recvfrom(recvSock, recvbuf, sizeof(recvbuf), 0, (struct sockaddr *)&remote, &socklen);
+			if (len != -1) {
+				if (strncmp("bootnx", recvbuf, strlen("bootnx")) == 0) {
+					break;
+				}
 			}
 		}
+
+		--retries;
 	}
-	if (timeout == 0) remote.sin_addr.s_addr =  INADDR_NONE;
-	shutdownSocket(broadcastSock);
-	shutdownSocket(recvSock);
+
+	if (retries == 0)
+		remote.sin_addr.s_addr =  INADDR_NONE;
+
+	shutdownSocket(broadcastSock, 0);
+	shutdownSocket(recvSock, SHUT_RD);
+
 	return remote.sin_addr;
 }
 
 //---------------------------------------------------------------------------------
-int sendData(int sock, int sendsize, void *buffer) {
+static int sendData(int sock, int sendsize, void *buffer) {
 //---------------------------------------------------------------------------------
 	char *buf = (char*)buffer;
-	while(sendsize) {
+	while (sendsize) {
+		if (pollSocket(sock, POLLOUT, -1))
+			return 1;
+
 		int len = send(sock, buf, sendsize, 0);
-		if (len == 0) break;
-		if (len != -1) {
+		if (len == 0)
+			return 1;
+
+		if (len == -1) {
+			if (socketError("send") != EWOULDBLOCK)
+				return 1;
+		} else {
 			sendsize -= len;
 			buf += len;
-		} else {
-#ifdef _WIN32
-			int errcode = WSAGetLastError();
-			if (errcode != WSAEWOULDBLOCK) {
-				socket_error("sendData");
-				break;
-			}
-#else
-			if ( errno != EWOULDBLOCK && errno != EAGAIN) {
-				socket_error("sendData");
-				break;
-			}
-#endif
 		}
 	}
+
 	return sendsize != 0;
 }
 
 //---------------------------------------------------------------------------------
-int recvData(int sock, void *buffer, int size, int flags) {
+static int recvData(int sock, void *buffer, int size, int flags) {
 //---------------------------------------------------------------------------------
 	int len, sizeleft = size;
 	char *buf = (char*)buffer;
 	while (sizeleft) {
+		if (pollSocket(sock, POLLIN, -1))
+			return 0;
+
 		len = recv(sock,buf,sizeleft,flags);
-		if (len == 0) {
-			size = 0;
-			break;
-		}
-		if (len != -1) {
+		if (len == 0)
+			return 0;
+
+		if (len == -1) {
+			if (socketError("recv") != EWOULDBLOCK)
+				return 0;
+		} else {
 			sizeleft -=len;
 			buf +=len;
-		} else {
-#ifdef _WIN32
-			int errcode = WSAGetLastError();
-			if (errcode != WSAEWOULDBLOCK) {
-				printf("recvdata error %d\n",errcode);
-				break;
-			}
-#else
-			if ( errno != EWOULDBLOCK && errno != EAGAIN) {
-				socket_error("recvdata");
-				break;
-			}
-#endif
 		}
 	}
+
 	return size;
 }
 
 
 //---------------------------------------------------------------------------------
-int sendInt32LE(int socket, uint32_t size) {
+static int sendInt32LE(int socket, uint32_t size) {
 //---------------------------------------------------------------------------------
 	unsigned char lenbuf[4];
 	lenbuf[0] = size & 0xff;
@@ -257,14 +236,14 @@ int sendInt32LE(int socket, uint32_t size) {
 	lenbuf[2] = (size >> 16) & 0xff;
 	lenbuf[3] = (size >> 24) & 0xff;
 
-	return sendData(socket,4,lenbuf);
+	return sendData(socket, 4, lenbuf);
 }
 
 //---------------------------------------------------------------------------------
-int recvInt32LE(int socket, int32_t *data) {
+static int recvInt32LE(int socket, int32_t *data) {
 //---------------------------------------------------------------------------------
 	unsigned char intbuf[4];
-	int len = recvData(socket,intbuf,4,0);
+	int len = recvData(socket, intbuf, 4, 0);
 
 	if (len == 4) {
 		*data = intbuf[0] & 0xff + (intbuf[1] <<  8) + (intbuf[2] <<  16) + (intbuf[3] <<  24);
@@ -272,14 +251,13 @@ int recvInt32LE(int socket, int32_t *data) {
 	}
 
 	return -1;
-
 }
 
-unsigned char in[ZLIB_CHUNK];
-unsigned char out[ZLIB_CHUNK];
+static unsigned char in[ZLIB_CHUNK];
+static unsigned char out[ZLIB_CHUNK];
 
 //---------------------------------------------------------------------------------
-int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) {
+static int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) {
 //---------------------------------------------------------------------------------
 
 	int retval = 0;
@@ -297,7 +275,7 @@ int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) {
 
 	int sock = socket(AF_INET,SOCK_STREAM,0);
 	if (sock < 0) {
-		socket_error("create connection socket");
+		socketError("create connection socket");
 		return -1;
 	}
 
@@ -307,7 +285,7 @@ int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) {
 	s.sin_port = htons(NETLOADER_SERVER_PORT);
 	s.sin_addr.s_addr = nxaddr;
 
-	if (connect(sock,(struct sockaddr *)&s,sizeof(s)) < 0 ) {
+	if (connect(sock,(struct sockaddr *)&s,sizeof(s)) < 0) {
 		struct in_addr address;
 		address.s_addr = nxaddr;
 		fprintf(stderr,"Connection to %s failed\n",inet_ntoa(address));
@@ -336,13 +314,13 @@ int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) {
 
 	int response;
 
-	if(recvInt32LE(sock,&response)!=0) {
+	if (recvInt32LE(sock,&response)!=0) {
 		fprintf(stderr,"Invalid response\n");
 		retval = 1;
 		goto error;
 	}
 
-	if(response!=0) {
+	if (response!=0) {
 		switch(response) {
 			case -1:
 				fprintf(stderr,"Failed to create file\n");
@@ -387,7 +365,7 @@ int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) {
 					goto error;
 				}
 
-				if(sendData(sock,have,out)) {
+				if (sendData(sock,have,out)) {
 					fprintf(stderr,"Failed sending %s\n", name);
 					retval = 1;
 					(void)deflateEnd(&strm);
@@ -406,14 +384,14 @@ int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) {
 
 	printf("%zu sent (%.2f%%), %zd blocks\n",totalsent, (float)(totalsent * 100.0)/ filesize, blocks);
 
-	if(recvInt32LE(sock,&response)!=0) {
+	if (recvInt32LE(sock,&response)!=0) {
 		fprintf(stderr,"Failed sending %s\n",name);
 		retval = 1;
 		goto error;
 	}
 
 
-	if(sendData(sock,cmdlen+4,(unsigned char*)cmdbuf)) {
+	if (sendData(sock,cmdlen+4,(unsigned char*)cmdbuf)) {
 
 		fprintf(stderr,"Failed sending command line\n");
 		retval = 1;
@@ -421,12 +399,12 @@ int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) {
 	}
 
 error:
-	shutdownSocket(sock);
+	shutdownSocket(sock, SHUT_WR);
 	return retval;
 }
 
 //---------------------------------------------------------------------------------
-void showHelp() {
+static void showHelp() {
 //---------------------------------------------------------------------------------
 	puts("Usage: nxlink [options] nrofile\n");
 	puts("--help,    -h   Display this information");
@@ -440,7 +418,7 @@ void showHelp() {
 
 
 //---------------------------------------------------------------------------------
-int add_extra_args(int len, char *buf, char *extra_args) {
+static int addExtraArgs(int len, char *buf, char *extra_args) {
 //---------------------------------------------------------------------------------
 
 	if (NULL==extra_args) return len;
@@ -457,7 +435,7 @@ int add_extra_args(int len, char *buf, char *extra_args) {
 		do {
 			c = *src++;
 			extra_len--;
-		} while(c ==' ' && extra_len >= 0);
+		} while (c ==' ' && extra_len >= 0);
 
 		if (c == '\"' || c == '\'') {
 			int quote = c;
@@ -465,7 +443,7 @@ int add_extra_args(int len, char *buf, char *extra_args) {
 				c = *src++;
 				if (c != quote) *dst++ = c;
 				extra_len--;
-			} while(c != quote && extra_len >= 0);
+			} while (c != quote && extra_len >= 0);
 
 			*dst++ = '\0';
 
@@ -475,10 +453,10 @@ int add_extra_args(int len, char *buf, char *extra_args) {
 			*dst++ = c;
 			extra_len--;
 			c = *src++;
-		} while(c != ' ' && extra_len >= 0);
+		} while (c != ' ' && extra_len >= 0);
 
 		*dst++ = '\0';
-	} while(extra_len >= 0);
+	} while (extra_len >= 0);
 
 	return dst - buf;
 }
@@ -498,10 +476,10 @@ int main(int argc, char **argv) {
 
 	if (argc < 2) {
 		showHelp();
-		return 1;
+		return EXIT_FAILURE;
 	}
 
-	while(1) {
+	while (1) {
 		static struct option long_options[] = {
 			{"address", required_argument, 0,	'a'},
 			{"retries", required_argument, 0,	'r'},
@@ -519,7 +497,7 @@ int main(int argc, char **argv) {
 
 		/* Detect the end of the options. */
 		if (c == -1)
-		break;
+			break;
 
 		switch(c) {
 
@@ -543,7 +521,7 @@ int main(int argc, char **argv) {
 			break;
 		case 'h':
 			showHelp();
-			return 1;
+			return EXIT_FAILURE;
 		case NRO_ARGS:
 			extra_args=optarg;
 			break;
@@ -554,7 +532,7 @@ int main(int argc, char **argv) {
 	char *filename = argv[optind++];
 	if (filename== NULL) {
 		showHelp();
-		return 1;
+		return EXIT_FAILURE;
 	}
 
 	memset(cmdbuf, '\0', sizeof(cmdbuf));
@@ -562,7 +540,7 @@ int main(int argc, char **argv) {
 	FILE *fh = fopen(filename,"rb");
 	if (fh == NULL) {
 		fprintf(stderr,"Failed to open %s\n",filename);
-		return -1;
+		return EXIT_FAILURE;
 	}
 
 #ifdef _WIN32
@@ -574,7 +552,7 @@ int main(int argc, char **argv) {
 	fseek(fh,0,SEEK_SET);
 
 	char *basename = NULL;
-	if((basename=strrchr(filename,'/'))!=NULL) {
+	if ((basename=strrchr(filename,'/'))!=NULL) {
 		basename++;
 	} else if ((basename=strrchr(filename,'\\'))!=NULL) {
 		basename++;
@@ -582,7 +560,7 @@ int main(int argc, char **argv) {
 		basename = filename;
 	}
 
-	if(basepath) {
+	if (basepath) {
 		size_t finalpath_len = strlen(basepath);
 		if (basepath[finalpath_len] == '/') {
 			finalpath_len += (strlen(basename) + 1);
@@ -599,12 +577,12 @@ int main(int argc, char **argv) {
 
 	for (int index = optind; index < argc; index++) {
 		int len=strlen(argv[index]);
-		if ( (cmdlen + len + 5 ) >= (sizeof(cmdbuf) - 2) ) break;
+		if ((cmdlen + len + 5) >= (sizeof(cmdbuf) - 2)) break;
 		strcpy(&cmdbuf[cmdlen+4],argv[index]);
 		cmdlen+= len + 1;
 	}
 
-	cmdlen = add_extra_args(cmdlen, &cmdbuf[4], extra_args);
+	cmdlen = addExtraArgs(cmdlen, &cmdbuf[4], extra_args);
 
 	cmdbuf[0] = cmdlen & 0xff;
 	cmdbuf[1] = (cmdlen>>8) & 0xff;
@@ -615,8 +593,9 @@ int main(int argc, char **argv) {
 	WSADATA wsa_data;
 	if (WSAStartup (MAKEWORD(2,2), &wsa_data)) {
 		printf ("WSAStartup failed\n");
-		return 1;
+		return EXIT_FAILURE;
 	}
+	atexit(&WSACleanup);
 #endif
 
 	struct in_addr nxaddr;
@@ -627,7 +606,7 @@ int main(int argc, char **argv) {
 
 		if (nxaddr.s_addr == INADDR_NONE) {
 			printf("No response from Switch!\n");
-			return 1;
+			return EXIT_FAILURE;
 		}
 
 	} else {
@@ -640,115 +619,97 @@ int main(int argc, char **argv) {
 
 	if (nxaddr.s_addr == INADDR_NONE) {
 		fprintf(stderr,"Invalid address\n");
-		return 1;
+		return EXIT_FAILURE;
 	}
 
 	int res = sendNROFile(nxaddr.s_addr,finalpath,filesize,fh);
 
 	fclose(fh);
 
-	if ( res == 0 && server) {
-		printf("starting server\n");
+	if (res != 0)
+		return EXIT_FAILURE;
 
-		struct sockaddr_in serv_addr;
+	if (!server)
+		return EXIT_SUCCESS;
 
-		memset(&serv_addr, '0', sizeof(serv_addr));
-		serv_addr.sin_family = AF_INET;
-		serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-		serv_addr.sin_port = htons(NETLOADER_CLIENT_PORT);
+	printf("starting server\n");
 
-		int listenfd = socket(AF_INET, SOCK_STREAM, 0);
-		int rc;
+	struct sockaddr_in serv_addr;
 
-		if(listenfd < 0) {
-			socket_error("socket");
-		} else {
+	memset(&serv_addr, '0', sizeof(serv_addr));
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	serv_addr.sin_port = htons(NETLOADER_CLIENT_PORT);
 
-			rc = bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+	int listenfd = socket(AF_INET, SOCK_STREAM, 0);
+	if (listenfd < 0) {
+		socketError("socket");
+		return EXIT_FAILURE;
+	}
 
-			if(rc != 0) {
-				socket_error("bind listen socket");
-			} else {
-				if (set_socket_nonblocking(listenfd) == -1) {
-					socket_error("listen fcntl");
+	int rc = bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+	if (rc != 0) {
+		socketError("bind listen socket");
+		shutdownSocket(listenfd, 0);
+		return EXIT_FAILURE;
+	}
 
-				} else {
-					rc = listen(listenfd, 10);
+	rc = setSocketNonblocking(listenfd);
+	if (rc == -1) {
+		socketError("listen fcntl");
+		shutdownSocket(listenfd, 0);
+		return EXIT_FAILURE;
+	}
 
-					if(rc != 0) {
-						socket_error("listen");
-					} else {
-						printf("server active ...\n");
+	rc = listen(listenfd, 10);
+	if (rc != 0) {
+		socketError("listen");
+		shutdownSocket(listenfd, 0);
+		return EXIT_FAILURE;
+	}
 
-						int datafd = -1;
+	printf("server active ...\n");
 
-						while( listenfd != -1 || datafd != -1) {
-							struct sockaddr_in sa_remote;
-							if(listenfd >= 0 && datafd < 0) {
-								socklen_t addrlen = sizeof(sa_remote);
-								datafd = accept(listenfd, (struct sockaddr*)&sa_remote, &addrlen);
+	int datafd = -1;
 
-								if(datafd < 0) {
-#ifdef _WIN32
-									int errcode = WSAGetLastError();
-									if (errcode != WSAEWOULDBLOCK) {
-										socket_error("accept");
-										listenfd = -1;
-									}
-#else
-									if ( errno != EWOULDBLOCK && errno != EAGAIN) {
-										socket_error("accept");
-										listenfd = -1;
-									}
-#endif
+	while (listenfd != -1 || datafd != -1) {
+		struct sockaddr_in sa_remote;
 
-								} else {
-									shutdownSocket(listenfd);
-									listenfd = -1;
-								}
-							}
+		if (pollSocket(listenfd >= 0 ? listenfd : datafd, POLLIN, -1))
+			break;
 
+		if (listenfd >= 0) {
+			socklen_t addrlen = sizeof(sa_remote);
+			datafd = accept(listenfd, (struct sockaddr*)&sa_remote, &addrlen);
 
-							if(datafd >= 0) {
-								char recvbuf[256];
-								int len = recv(datafd,recvbuf,256,0);
+			if (datafd < 0 && socketError("accept") != EWOULDBLOCK)
+				break;
 
-								if (len > 0 ) {
-									recvbuf[len] = 0;
-									printf("%s", recvbuf);
-								} else {
-
-									if (len == -1) {
-#ifdef _WIN32
-										int errcode = WSAGetLastError();
-										if (errcode != WSAEWOULDBLOCK) {
-											socket_error("recvdata");
-											len = 0;
-										}
-#else
-										if ( errno != EWOULDBLOCK && errno != EAGAIN) {
-											perror("recvdata");
-											len = 0;
-										}
-#endif
-									}
-									if (len ==0 ) {
-										shutdownSocket(datafd);
-										datafd = -1;
-									}
-								}
-							}
-						}
-						printf("exiting ... \n");
-					}
-				}
+			if (datafd >= 0) {
+				shutdownSocket(listenfd, 0);
+				listenfd = -1;
 			}
+		} else {
+			char recvbuf[256];
+			int len = recv(datafd, recvbuf, sizeof(recvbuf), 0);
+
+			if (len == 0 || (len < 0 && socketError("recv") != EWOULDBLOCK)) {
+				shutdownSocket(datafd, 0);
+				datafd = -1;
+				break;
+			}
+
+			if (len > 0)
+				fwrite(recvbuf, 1, len, stdout);
 		}
 	}
 
-#ifdef __WIN32__
-	WSACleanup ();
-#endif
-	return res;
-}
+	if (listenfd >= 0)
+		shutdownSocket(listenfd, 0);
+	if (datafd >= 0)
+		shutdownSocket(datafd, SHUT_RD);
 
+	printf("exiting ... \n");
+
+	return EXIT_SUCCESS;
+}
