@@ -24,10 +24,11 @@ typedef uint32_t in_addr_t;
 #define SHUT_RD SD_RECEIVE
 #define SHUT_WR SD_SEND
 #define SHUT_RDWR SD_BOTH
-#ifndef EWOULDBLOCK
+#ifdef EWOULDBLOCK
+#undef EWOULDBLOCK
+#endif
 #define EWOULDBLOCK WSAEWOULDBLOCK
 #define poll WSAPoll
-#endif
 #endif
 
 #include <zlib.h>
@@ -54,6 +55,7 @@ static void shutdownSocket(int socket, int flags) {
 static int setSocketNonblocking(int sock) {
 //---------------------------------------------------------------------------------
 
+#ifndef __WIN32__
 	int flags = fcntl(sock, F_GETFL);
 
 	if (flags == -1) return -1;
@@ -61,6 +63,13 @@ static int setSocketNonblocking(int sock) {
 	int rc = fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
 	if (rc != 0) return -1;
+#else
+	u_long iMode = 1; // non-blocking
+
+	int rc = ioctlsocket(sock, FIONBIO, &iMode);
+
+	if (rc != NO_ERROR) return -1;
+#endif
 
 	return 0;
 }
@@ -92,7 +101,11 @@ static int socketError(const char *msg) {
 //---------------------------------------------------------------------------------
 int pollSocket(int fd, int events, int timeout) {
 //---------------------------------------------------------------------------------
+#ifndef __WIN32__
 	struct pollfd pfd;
+#else
+	WSAPOLLFD pfd;
+#endif
 
 	pfd.fd = fd;
 	pfd.events = events;
@@ -463,6 +476,12 @@ static int addExtraArgs(int len, char *buf, char *extra_args) {
 
 #define NRO_ARGS	1000
 
+#ifdef __WIN32__
+static void win32_socket_cleanup(void) {
+	WSACleanup();
+}
+#endif
+
 //---------------------------------------------------------------------------------
 int main(int argc, char **argv) {
 //---------------------------------------------------------------------------------
@@ -595,7 +614,7 @@ int main(int argc, char **argv) {
 		printf ("WSAStartup failed\n");
 		return EXIT_FAILURE;
 	}
-	atexit(&WSACleanup);
+	atexit(&win32_socket_cleanup);
 #endif
 
 	struct in_addr nxaddr;

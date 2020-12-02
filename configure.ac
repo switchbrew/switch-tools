@@ -31,7 +31,7 @@ NET_LIBS=""
 case "$host" in
    *-*-mingw*)
       NET_LIBS="-lws2_32"
-      CFLAGS="$CFLAGS -D__USE_MINGW_ANSI_STDIO"
+      CFLAGS="$CFLAGS -D__USE_MINGW_ANSI_STDIO -D_WIN32_WINNT=0x0600"
       ;;
 esac
 
