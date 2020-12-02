@@ -362,6 +362,13 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     }
     header.MmuFlags |= is_64_bit;
 
+    int disable_device_address_space_merge;
+    if (!cJSON_GetBoolean(npdm_json, "disable_device_address_space_merge", &disable_device_address_space_merge)) {
+        status = 0;
+        goto NPDM_BUILD_END;
+    }
+    header.MmuFlags |= ((disable_device_address_space_merge & 1) << 5);
+
     /* ACID. */
     memset(acid->Signature, 0, sizeof(acid->Signature));
     memset(acid->Modulus, 0, sizeof(acid->Modulus));
