@@ -231,6 +231,17 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
         }
     }
 
+    /* Parse immortality. */
+    /* This field is optional, and defaults to true (set before this function is called). */
+    int immortal = 1;
+    if (cJSON_GetBooleanOptional(npdm_json, "immortal", &immortal)) {
+        if (immortal) {
+            kip_hdr->Flags |= 0x40;
+        } else {
+            kip_hdr->Flags &= ~0x40;
+        }
+    }
+
     /* Parse main_thread_stack_size. */
     u64 stack_size = 0;
     if (!cJSON_GetU64(npdm_json, "main_thread_stack_size", &stack_size)) {
@@ -553,7 +564,7 @@ int main(int argc, char* argv[]) {
 
     KipHeader kip_hdr = {0};
     memcpy(kip_hdr.Magic, "KIP1", 4);
-    kip_hdr.Flags = 0x3F;
+    kip_hdr.Flags = 0x7F;
 
     if (sizeof(KipHeader) != 0x100) {
         fprintf(stderr, "Bad compile environment!\n");
