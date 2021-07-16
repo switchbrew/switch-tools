@@ -410,9 +410,7 @@ size_t build_romfs_into_file(filepath_t *in_dirpath, FILE *f_out, off_t base_off
         cur_entry->name_size = name_size;
         memcpy(cur_entry->name, cur_dir->cur_path.char_path + 1, name_size);
 
-        romfs_dirent_ctx_t *temp = cur_dir;
         cur_dir = cur_dir->next;
-        free(temp);
     }
 
     header.header_size = le_dword(sizeof(header));
@@ -474,11 +472,27 @@ size_t build_romfs_into_file(filepath_t *in_dirpath, FILE *f_out, off_t base_off
 
         os_fclose(f_in);
 
+        cur_file = cur_file->next;
+    }
+    free(buffer);
+
+    /* Free all files. */
+    cur_file = romfs_ctx.files;
+    while (cur_file != NULL) {
         romfs_fent_ctx_t *temp = cur_file;
         cur_file = cur_file->next;
         free(temp);
     }
-    free(buffer);
+    romfs_ctx.files = NULL;
+
+    /* Free all directories. */
+    cur_dir = root_ctx;
+    while (cur_dir != NULL) {
+        romfs_dirent_ctx_t *temp = cur_dir;
+        cur_dir = cur_dir->next;
+        free(temp);
+    }
+    root_ctx = NULL;
 
     fseeko64(f_out, base_offset + dir_hash_table_ofs, SEEK_SET);
     if (fwrite(dir_hash_table, 1, romfs_ctx.dir_hash_table_size, f_out) != romfs_ctx.dir_hash_table_size) {
