@@ -270,7 +270,7 @@ static unsigned char in[ZLIB_CHUNK];
 static unsigned char out[ZLIB_CHUNK];
 
 //---------------------------------------------------------------------------------
-static int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) {
+static int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh, int server) {
 //---------------------------------------------------------------------------------
 
 	int retval = 0;
@@ -306,6 +306,12 @@ static int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) 
 	}
 
 	int namelen = strlen(name);
+
+	if (sendInt32LE(sock,server)) {
+		fprintf(stderr,"Failed sending server flag\n");
+		retval = -1;
+		goto error;
+	}
 
 	if (sendInt32LE(sock,namelen)) {
 		fprintf(stderr,"Failed sending filename length\n");
@@ -641,7 +647,7 @@ int main(int argc, char **argv) {
 		return EXIT_FAILURE;
 	}
 
-	int res = sendNROFile(nxaddr.s_addr,finalpath,filesize,fh);
+	int res = sendNROFile(nxaddr.s_addr,finalpath,filesize,fh,server);
 
 	fclose(fh);
 
