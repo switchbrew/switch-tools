@@ -8,10 +8,6 @@
 #include "elf64.h"
 #include "romfs.h"
 
-typedef uint64_t u64;
-typedef uint32_t u32;
-typedef uint8_t u8;
-
 typedef struct {
     u32 FileOff;
     u32 Size;
