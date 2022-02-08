@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <elf.h>
 #include <lz4.h>
 #include "sha256.h"
-#include "elf64.h"
 
 typedef uint64_t u64;
 typedef uint32_t u32;
@@ -31,7 +31,7 @@ typedef struct {
     u8  Padding[0x24];
     u64 Unk4;
     u64 Unk5;
-    Sha2Hash Hashes[3];    
+    Sha2Hash Hashes[3];
 } NsoHeader;
 
 uint8_t* ReadEntireFile(const char* fn, size_t* len_out) {
@@ -157,7 +157,7 @@ int main(int argc, char* argv[]) {
         nso_hdr.CompSz[i] = comp_sz[i];
         file_off += comp_sz[i];
     }
-    
+
     /* Iterate over sections to find build id. */
     size_t cur_sect_hdr_ofs = hdr->e_shoff;
     for (unsigned int i = 0; i < hdr->e_shnum; i++) {

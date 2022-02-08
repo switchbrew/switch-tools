@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <elf.h>
 #include <lz4.h>
 #include "sha256.h"
-#include "elf64.h"
 #include "romfs.h"
 
 typedef struct {
@@ -80,7 +80,7 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "--romfsdir=<directory> Builds and embeds RomFS into the output file.\n");
         return EXIT_FAILURE;
     }
-    
+
     NroStart nro_start;
     memset(&nro_start, 0, sizeof(nro_start));
 
@@ -108,12 +108,12 @@ int main(int argc, char* argv[]) {
         if (strncmp(argv[argi], "--romfs=", 8)==0) romfs_path = &argv[argi][8];
         if (strncmp(argv[argi], "--romfsdir=", 11)==0) romfs_dir_path = &argv[argi][11];
     }
-    
+
     if (romfs_dir_path != NULL && romfs_path != NULL) {
         fprintf(stderr, "Cannot have a RomFS and a RomFS Directory at the same time!\n");
         return EXIT_FAILURE;
     }
-    
+
     if (elf_len < sizeof(Elf64_Ehdr)) {
         fprintf(stderr, "Input file doesn't fit ELF header!\n");
         return EXIT_FAILURE;
@@ -154,7 +154,7 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "Invalid ELF: expected 3 loadable phdrs and a bss!\n");
             return EXIT_FAILURE;
         }
-        
+
         // .bss is special
         if (i == 3) {
             tmpsize = (phdr->p_filesz + 0xFFF) & ~0xFFF;
@@ -174,13 +174,13 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "Out of memory!\n");
             return EXIT_FAILURE;
         }
-        
+
         memcpy(buf[i], &elf[phdr->p_offset], phdr->p_filesz);
 
         file_off += nro_hdr.Segments[i].Size;
         file_off = (file_off + 0xFFF) & ~0xFFF;
     }
-    
+
     /* Iterate over sections to find build id. */
     size_t cur_sect_hdr_ofs = hdr->e_shoff;
     for (unsigned int i = 0; i < hdr->e_shnum; i++) {
@@ -206,7 +206,7 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Failed to open output file!\n");
         return EXIT_FAILURE;
     }
-    
+
     nro_hdr.size = file_off;
 
     // TODO check retvals
@@ -270,7 +270,7 @@ int main(int argc, char* argv[]) {
         asset_hdr.romfs.offset = tmp_off;
         asset_hdr.romfs.size = romfs_len;
         tmp_off+= romfs_len;
-        
+
     } else if (romfs_dir_path) {
         asset_hdr.romfs.offset = tmp_off;
         asset_hdr.romfs.size = build_romfs_by_path_into_file(romfs_dir_path, out, file_off + tmp_off);
