@@ -341,13 +341,17 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 status = 0;
                 goto PARSE_CAPS_END;
             }
+
+            u8 real_highest_prio = (lowest_prio < highest_prio) ? lowest_prio : highest_prio;
+            u8 real_lowest_prio  = (lowest_prio > highest_prio) ? lowest_prio : highest_prio;
+
             desc = highest_cpu;
             desc <<= 8;
             desc |= lowest_cpu;
             desc <<= 6;
-            desc |= (lowest_prio & 0x3F);
+            desc |= (real_highest_prio & 0x3F);
             desc <<= 6;
-            desc |= (highest_prio & 0x3F);
+            desc |= (real_lowest_prio & 0x3F);
             kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 4) | (0x0007));
         } else if (!strcmp(type_str, "syscalls")) {
             if (!cJSON_IsObject(value)) {
