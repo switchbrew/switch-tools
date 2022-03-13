@@ -363,6 +363,11 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     }
     header.MmuFlags |= is_64_bit;
 
+    int optimize_memory_allocation; // optional
+    if (cJSON_GetBoolean(npdm_json, "optimize_memory_allocation", &optimize_memory_allocation)) {
+        header.MmuFlags |= ((optimize_memory_allocation & 1) << 4);
+    }
+
     int disable_device_address_space_merge; // optional
     if (cJSON_GetBoolean(npdm_json, "disable_device_address_space_merge", &disable_device_address_space_merge)) {
         header.MmuFlags |= ((disable_device_address_space_merge & 1) << 5);
