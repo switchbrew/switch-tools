@@ -19,8 +19,8 @@ typedef struct {
 typedef struct {
     u8  Magic[4];
     u8  Name[0xC];
-    u64 TitleId;
-    u32 ProcessCategory;
+    u64 ProgramId;
+    u32 Version;
     u8  MainThreadPriority;
     u8  DefaultCpuId;
     u8  Unk;
@@ -185,6 +185,32 @@ int cJSON_GetU64FromObjectValue(const cJSON *config, u64 *out) {
     }
 }
 
+int cJSON_GetU32(const cJSON *obj, const char *field, u32 *out) {
+    const cJSON *config = cJSON_GetObjectItemCaseSensitive(obj, field);
+    if (cJSON_IsString(config) && (config->valuestring != NULL)) {
+        char *endptr = NULL;
+        *out = strtoul(config->valuestring, &endptr, 16);
+        if (config->valuestring == endptr) {
+            fprintf(stderr, "Failed to get %s (empty string)\n", field);
+            return 0;
+        } else if (errno == ERANGE) {
+            fprintf(stderr, "Failed to get %s (value out of range)\n", field);
+            return 0;
+        } else if (errno == EINVAL) {
+            fprintf(stderr, "Failed to get %s (not base16 string)\n", field);
+            return 0;
+        } else if (errno) {
+            fprintf(stderr, "Failed to get %s (unknown error)\n", field);
+            return 0;
+        } else {
+            return 1;
+        }
+    } else {
+        fprintf(stderr, "Failed to get %s (field not present).\n", field);
+        return 0;
+    }
+}
+
 int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
     const cJSON *capability = NULL;
     const cJSON *capabilities = NULL;
@@ -209,8 +235,8 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
         goto PARSE_CAPS_END;
     }
 
-    /* Parse title_id. */
-    if (!cJSON_GetU64(npdm_json, "title_id", &kip_hdr->TitleId)) {
+    /* Parse program_id (or deprecated title_id). */
+    if (!cJSON_GetU64(npdm_json, "program_id", &kip_hdr->ProgramId) && !cJSON_GetU64(npdm_json, "title_id", &kip_hdr->ProgramId)) {
         status = 0;
         goto PARSE_CAPS_END;
     }
@@ -259,9 +285,8 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
         status = 0;
         goto PARSE_CAPS_END;
     }
-    if (!cJSON_GetU8(npdm_json, "process_category", (u8 *)&kip_hdr->ProcessCategory)) {
-        status = 0;
-        goto PARSE_CAPS_END;
+    if (!cJSON_GetU32(npdm_json, "version", &kip_hdr->Version) && !cJSON_GetU32(npdm_json, "process_category", &kip_hdr->Version)) { // optional
+        kip_hdr->Version = 1;
     }
 
     /* Parse capabilities. */
@@ -331,7 +356,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 goto PARSE_CAPS_END;
             }
             u32 num_descriptors;
-            u32 descriptors[6] = {0}; /* alignup(0x80/0x18); */
+            u32 descriptors[8] = {0}; /* alignup(0xC0/0x18); */
             char field_name[8] = {0};
             const cJSON *cur_syscall = NULL;
             u64 syscall_value = 0;
@@ -344,14 +369,14 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                     goto PARSE_CAPS_END;
                 }
 
-                if (syscall_value >= 0x80) {
-                    fprintf(stderr, "Error: All syscall entries must be numbers in [0, 0x7F]\n");
+                if (syscall_value >= 0xC0) {
+                    fprintf(stderr, "Error: All syscall entries must be numbers in [0, 0xBF]\n");
                     status = 0;
                     goto PARSE_CAPS_END;
                 }
                 descriptors[syscall_value / 0x18] |= (1UL << (syscall_value % 0x18));
             }
-            for (unsigned int i = 0; i < 6; i++) {
+            for (unsigned int i = 0; i < 8; i++) {
                 if (descriptors[i]) {
                     if (cur_cap + 1 > 0x20) {
                         fprintf(stderr, "Error: Too many capabilities!\n");
@@ -388,7 +413,8 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             desc |= is_ro << 24;
             kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 7) | (0x003F));
 
-            desc = (u32)((map_size >> 12) & 0x00FFFFFFULL);
+            desc = (u32)((map_size >> 12) & 0x000FFFFFULL);
+            desc |= (u32)(((map_address >> 36) & 0xFULL) << 20);
             is_io ^= 1;
             desc |= is_io << 24;
             kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 7) | (0x003F));
