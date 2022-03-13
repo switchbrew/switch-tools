@@ -466,18 +466,33 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
     sdois = cJSON_GetObjectItemCaseSensitive(fsaccess, "save_data_owner_ids");
     if (cJSON_IsArray(sdois)) {
         u32 *count = (u32 *)((u8 *)fah + fah->SdoiOffset);
-        u64 *id = (u64 *)((u8 *)count + sizeof(u32));
         cJSON_ArrayForEach(sdoi, sdois) {
-            if (!cJSON_GetU64FromObjectValue(sdoi, id)) {
+            if (!cJSON_IsObject(sdoi)) {
                 status = 0;
                 goto NPDM_BUILD_END;
             }
-            ++id;
             ++(*count);
         }
 
+        u8 *accessibility = (u8 *)count + sizeof(u32);
+        u64 *id = (u64 *)(accessibility + (((*count) + 3ULL) & ~3ULL));
+
+        cJSON_ArrayForEach(sdoi, sdois) {
+            if (!cJSON_GetU8(sdoi, "accessibility", accessibility)) {
+                status = 0;
+                goto NPDM_BUILD_END;
+            }
+            if (!cJSON_GetU64(sdoi, "id", id)) {
+                status = 0;
+                goto NPDM_BUILD_END;
+            }
+
+            ++accessibility;
+            ++id;
+        }
+
         if (*count > 0) {
-            fah->SdoiSize = sizeof(u32) + sizeof(u64) * (*count);
+            fah->SdoiSize = sizeof(u32) + sizeof(u8) * ((((*count) + 3ULL) & ~3ULL)) + sizeof(u64) * (*count);
         }
     }
 
