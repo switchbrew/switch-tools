@@ -270,7 +270,7 @@ static unsigned char in[ZLIB_CHUNK];
 static unsigned char out[ZLIB_CHUNK];
 
 //---------------------------------------------------------------------------------
-static int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) {
+static int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh, int port) {
 //---------------------------------------------------------------------------------
 
 	int retval = 0;
@@ -295,7 +295,7 @@ static int sendNROFile(in_addr_t nxaddr, char *name, size_t filesize, FILE *fh) 
 	struct sockaddr_in s;
 	memset(&s, '\0', sizeof(struct sockaddr_in));
 	s.sin_family = AF_INET;
-	s.sin_port = htons(NETLOADER_SERVER_PORT);
+	s.sin_port = htons(port);
 	s.sin_addr.s_addr = nxaddr;
 
 	if (connect(sock,(struct sockaddr *)&s,sizeof(s)) < 0) {
@@ -422,6 +422,7 @@ static void showHelp() {
 	puts("Usage: nxlink [options] nrofile\n");
 	puts("--help,    -h   Display this information");
 	puts("--address, -a   Hostname or IPv4 address of Switch");
+    puts("--port,    -z   Port of Switch netloader server");
 	puts("--retries, -r   number of times to ping before giving up");
 	puts("--path   , -p   set upload path for file");
 	puts("--args          args to send to nro");
@@ -488,6 +489,7 @@ int main(int argc, char **argv) {
 	char *address = NULL;
 	char *basepath = NULL;
 	char *finalpath = NULL;
+    char *port = NULL;
 	char *endarg = NULL;
 	char *extra_args = NULL;
 	int retries = 10;
@@ -503,6 +505,7 @@ int main(int argc, char **argv) {
 			{"address", required_argument, 0,	'a'},
 			{"retries", required_argument, 0,	'r'},
 			{"path",    required_argument, 0,	'p'},
+            {"port",    required_argument, 0,   'z'},
 			{"args",    required_argument, 0,  NRO_ARGS},
 			{"help",    no_argument,       0,	'h'},
 			{"server",  no_argument,       &server,  1 },
@@ -512,17 +515,19 @@ int main(int argc, char **argv) {
 		/* getopt_long stores the option index here. */
 		int option_index = 0, c;
 
-		c = getopt_long (argc, argv, "a:r:hp:s", long_options, &option_index);
+		c = getopt_long (argc, argv, "a:z:r:hp:s", long_options, &option_index);
 
 		/* Detect the end of the options. */
 		if (c == -1)
 			break;
 
 		switch(c) {
-
 		case 'a':
 			address = optarg;
 			break;
+        case 'z':
+            port = optarg;
+            break;
 		case 'r':
 			errno = 0;
 			retries = strtoul(optarg, &endarg, 0);
@@ -641,7 +646,12 @@ int main(int argc, char **argv) {
 		return EXIT_FAILURE;
 	}
 
-	int res = sendNROFile(nxaddr.s_addr,finalpath,filesize,fh);
+    int srvPort = NETLOADER_SERVER_PORT;
+    if (port != NULL) {
+        srvPort = atoi(port);
+    }
+
+	int res = sendNROFile(nxaddr.s_addr,finalpath,filesize,fh,srvPort);
 
 	fclose(fh);
 
