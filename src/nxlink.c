@@ -505,7 +505,7 @@ int main(int argc, char **argv) {
 			{"address", required_argument, 0,	'a'},
 			{"retries", required_argument, 0,	'r'},
 			{"path",    required_argument, 0,	'p'},
-			{"port",    required_argument, 0,   'z'},
+			{"port",    required_argument, 0,	'z'},
 			{"args",    required_argument, 0,  NRO_ARGS},
 			{"help",    no_argument,       0,	'h'},
 			{"server",  no_argument,       &server,  1 },
