@@ -5,9 +5,9 @@
 #include <string.h>
 #include <errno.h>
 #include <limits.h>
+#include <elf.h>
 #include "cJSON.h"
 #include "blz.h"
-#include "elf64.h"
 
 typedef struct {
     u32 DstOff;
