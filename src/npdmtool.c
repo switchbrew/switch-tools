@@ -373,6 +373,16 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
         header.MmuFlags |= ((disable_device_address_space_merge & 1) << 5);
     }
 
+    int enable_alias_region_extra_size; // optional
+    if (cJSON_GetBoolean(npdm_json, "enable_alias_region_extra_size", &enable_alias_region_extra_size)) {
+        header.MmuFlags |= ((enable_alias_region_extra_size & 1) << 6);
+    }
+
+    int prevent_code_reads; // optional
+    if (cJSON_GetBoolean(npdm_json, "prevent_code_reads", &prevent_code_reads)) {
+        header.MmuFlags |= ((prevent_code_reads & 1) << 7);
+    }
+
     u8 signature_key_generation; // optional
     if (cJSON_GetU8(npdm_json, "signature_key_generation", &signature_key_generation)) {
         header.SignatureKeyGeneration = signature_key_generation;
