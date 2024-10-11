@@ -554,6 +554,7 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
             }
             int allow_debug = 0;
             int force_debug = 0;
+            int force_debug_prod = 0;
             if (!cJSON_GetBoolean(value, "allow_debug", &allow_debug)) {
                 status = 0;
                 goto PARSE_CAPS_END;
@@ -562,7 +563,11 @@ int ParseKipConfiguration(const char *json, KipHeader *kip_hdr) {
                 status = 0;
                 goto PARSE_CAPS_END;
             }
-            desc = (allow_debug & 1) | ((force_debug & 1) << 1);
+            if (!cJSON_GetBoolean(value, "force_debug_prod", &force_debug_prod)) {
+                status = 0;
+                goto PARSE_CAPS_END;
+            }
+            desc = (allow_debug & 1) | ((force_debug_prod & 1) << 1) | ((force_debug & 1) << 2);
             kip_hdr->Capabilities[cur_cap++] = (u32)((desc << 17) | (0xFFFF));
         } else {
             fprintf(stderr, "Error: unknown capability %s\n", type_str);

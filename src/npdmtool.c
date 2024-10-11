@@ -819,6 +819,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
             }
             int allow_debug = 0;
             int force_debug = 0;
+            int force_debug_prod = 0;
             if (!cJSON_GetBoolean(value, "allow_debug", &allow_debug)) {
                 status = 0;
                 goto NPDM_BUILD_END;
@@ -827,7 +828,11 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
                 status = 0;
                 goto NPDM_BUILD_END;
             }
-            desc = (allow_debug & 1) | ((force_debug & 1) << 1);
+            if (!cJSON_GetBoolean(value, "force_debug_prod", &force_debug_prod)) {
+                status = 0;
+                goto NPDM_BUILD_END;
+            }
+            desc = (allow_debug & 1) | ((force_debug_prod & 1) << 1) | ((force_debug & 1) << 2);
             caps[cur_cap++] = (u32)((desc << 17) | (0xFFFF));
         }
     }
