@@ -21,9 +21,9 @@ typedef struct {
 
 typedef struct {
     u8  Magic[4];
-    u32 Unk1;
+    u32 version;
     u32 size;
-    u32 Unk2;
+    u32 flags;
     NsoSegment Segments[3];
     u32 bssSize;
     u32 Unk3;
@@ -78,9 +78,10 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "--nacp=<control.nacp> Embeds control.nacp into the output file.\n");
         fprintf(stderr, "--romfs=<image> Embeds RomFS into the output file.\n");
         fprintf(stderr, "--romfsdir=<directory> Builds and embeds RomFS into the output file.\n");
+        fprintf(stderr, "--alignedheader Sets the \"AlignedHeader\" flag in the output file.\n");
         return EXIT_FAILURE;
     }
-    
+
     NroStart nro_start;
     memset(&nro_start, 0, sizeof(nro_start));
 
@@ -102,18 +103,20 @@ int main(int argc, char* argv[]) {
 
     int argi;
     char* icon_path = NULL, *nacp_path = NULL, *romfs_path = NULL, *romfs_dir_path = NULL;
+    u32 aligned_header = 0;
     for (argi=3; argi<argc; argi++) {
         if (strncmp(argv[argi], "--icon=", 7)==0) icon_path = &argv[argi][7];
         if (strncmp(argv[argi], "--nacp=", 7)==0) nacp_path = &argv[argi][7];
         if (strncmp(argv[argi], "--romfs=", 8)==0) romfs_path = &argv[argi][8];
         if (strncmp(argv[argi], "--romfsdir=", 11)==0) romfs_dir_path = &argv[argi][11];
+        if (strncmp(argv[argi], "--alignedheader", 15)==0) aligned_header = 1;
     }
-    
+
     if (romfs_dir_path != NULL && romfs_path != NULL) {
         fprintf(stderr, "Cannot have a RomFS and a RomFS Directory at the same time!\n");
         return EXIT_FAILURE;
     }
-    
+
     if (elf_len < sizeof(Elf64_Ehdr)) {
         fprintf(stderr, "Input file doesn't fit ELF header!\n");
         return EXIT_FAILURE;
@@ -154,7 +157,7 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "Invalid ELF: expected 3 loadable phdrs and a bss!\n");
             return EXIT_FAILURE;
         }
-        
+
         // .bss is special
         if (i == 3) {
             tmpsize = (phdr->p_filesz + 0xFFF) & ~0xFFF;
@@ -174,13 +177,13 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "Out of memory!\n");
             return EXIT_FAILURE;
         }
-        
+
         memcpy(buf[i], &elf[phdr->p_offset], phdr->p_filesz);
 
         file_off += nro_hdr.Segments[i].Size;
         file_off = (file_off + 0xFFF) & ~0xFFF;
     }
-    
+
     /* Iterate over sections to find build id. */
     size_t cur_sect_hdr_ofs = hdr->e_shoff;
     for (unsigned int i = 0; i < hdr->e_shnum; i++) {
@@ -206,8 +209,11 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Failed to open output file!\n");
         return EXIT_FAILURE;
     }
-    
+
     nro_hdr.size = file_off;
+
+    nro_hdr.version = 0;
+    nro_hdr.flags   = (aligned_header << 0);
 
     // TODO check retvals
 
@@ -270,7 +276,7 @@ int main(int argc, char* argv[]) {
         asset_hdr.romfs.offset = tmp_off;
         asset_hdr.romfs.size = romfs_len;
         tmp_off+= romfs_len;
-        
+
     } else if (romfs_dir_path) {
         asset_hdr.romfs.offset = tmp_off;
         asset_hdr.romfs.size = build_romfs_by_path_into_file(romfs_dir_path, out, file_off + tmp_off);
