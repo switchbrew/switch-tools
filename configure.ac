@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT([switch-tools],[1.12.0],[https://github.com/switchbrew/switch-tools/issues])
+AC_INIT([switch-tools],[1.13.0],[https://github.com/switchbrew/switch-tools/issues])
 AC_CONFIG_SRCDIR([src/build_pfs0.c])
 
 AM_INIT_AUTOMAKE([subdir-objects])
