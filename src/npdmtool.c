@@ -838,7 +838,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
                 status = 0;
                 goto NPDM_BUILD_END;
             }
-            if (!cJSON_GetBoolean(value, "force_debug_prod", &force_debug_prod)) {
+            if (!cJSON_GetBooleanOptional(value, "force_debug_prod", &force_debug_prod)) {
                 status = 0;
                 goto NPDM_BUILD_END;
             }
