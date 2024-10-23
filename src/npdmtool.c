@@ -834,7 +834,7 @@ int CreateNpdm(const char *json, void **dst, u32 *dst_size) {
             cJSON_GetBoolean(value, "force_debug", &force_debug);
             cJSON_GetBoolean(value, "force_debug_prod", &force_debug_prod);
             if ( allow_debug + force_debug + force_debug_prod > 1 ) {
-                fprintf(stderr, "Only one debug flag can be set!\n");
+                fprintf(stderr, "Only one of allow_debug, force_debug, or force_debug_prod can be set!\n");
                 status = 0;
                 goto NPDM_BUILD_END;
             }
